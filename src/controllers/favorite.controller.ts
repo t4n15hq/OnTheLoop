@@ -17,7 +17,18 @@ export class FavoriteController {
         return;
       }
 
-      const { routeType, routeId, stationId, direction, stopId, name } = req.body;
+      const {
+        routeType,
+        routeId,
+        stationId,
+        direction,
+        stopId,
+        boardingStopId,
+        boardingStopName,
+        alightingStopId,
+        alightingStopName,
+        name
+      } = req.body;
 
       const favorite = await FavoriteService.createFavorite({
         userId: req.user!.userId,
@@ -26,6 +37,10 @@ export class FavoriteController {
         stationId,
         direction,
         stopId,
+        boardingStopId,
+        boardingStopName,
+        alightingStopId,
+        alightingStopName,
         name,
       });
 
@@ -81,12 +96,34 @@ export class FavoriteController {
       }
 
       const { id } = req.params;
-      const { routeType, routeId, stationId, direction, stopId, name } = req.body;
+      const {
+        routeType,
+        routeId,
+        stationId,
+        direction,
+        stopId,
+        boardingStopId,
+        boardingStopName,
+        alightingStopId,
+        alightingStopName,
+        name
+      } = req.body;
 
       const favorite = await FavoriteService.updateFavorite(
         id,
         req.user!.userId,
-        { routeType, routeId, stationId, direction, stopId, name }
+        {
+          routeType,
+          routeId,
+          stationId,
+          direction,
+          stopId,
+          boardingStopId,
+          boardingStopName,
+          alightingStopId,
+          alightingStopName,
+          name
+        }
       );
 
       res.status(200).json({ message: 'Favorite updated', favorite });

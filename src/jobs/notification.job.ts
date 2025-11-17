@@ -89,7 +89,9 @@ async function processNotification(jobData: NotificationJobData) {
         await EmailService.sendArrivalNotification(
           user.email,
           title,
-          formattedArrivals
+          formattedArrivals,
+          favorite.boardingStopName || undefined,
+          favorite.alightingStopName || undefined
         );
         logger.info(`Email notification sent for favorite ${favoriteId} to ${user.email}`);
       } catch (emailError) {

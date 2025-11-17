@@ -9,6 +9,10 @@ interface CreateFavoriteData {
   stationId?: string;
   direction?: string;
   stopId?: string;
+  boardingStopId?: string;
+  boardingStopName?: string;
+  alightingStopId?: string;
+  alightingStopName?: string;
   name: string;
 }
 

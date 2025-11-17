@@ -63,9 +63,16 @@ class EmailService {
   async sendArrivalNotification(
     email: string,
     routeName: string,
-    arrivals: Array<{ destination: string; minutesAway: string }>
+    arrivals: Array<{ destination: string; minutesAway: string }>,
+    boardingStopName?: string,
+    alightingStopName?: string
   ): Promise<boolean> {
-    const subject = `🚇 ${routeName} - Next Arrivals`;
+    // Update subject and route name to show journey if both stops provided
+    let displayName = routeName;
+    if (boardingStopName && alightingStopName) {
+      displayName = `${boardingStopName} → ${alightingStopName}`;
+    }
+    const subject = `🚇 ${displayName} - Next Arrivals`;
 
     // Format arrivals with both relative and absolute time
     const formatArrival = (minutesAway: string) => {
@@ -130,9 +137,9 @@ class EmailService {
               <!-- Location Icon + Route Name -->
               <div style="margin-bottom: 8px;">
                 <span style="font-size: 16px; margin-right: 4px;">📍</span>
-                <span style="color: #0F172A; font-size: 18px; font-weight: 700;">${routeName}</span>
+                <span style="color: #0F172A; font-size: 18px; font-weight: 700;">${displayName}</span>
               </div>
-              <p style="margin: 0 0 20px 0; color: #64748B; font-size: 13px;">Scheduled arrival times</p>
+              <p style="margin: 0 0 20px 0; color: #64748B; font-size: 13px;">${boardingStopName && alightingStopName ? 'Your journey' : 'Scheduled arrival times'}</p>
 
               ${arrivalsHtml}
 

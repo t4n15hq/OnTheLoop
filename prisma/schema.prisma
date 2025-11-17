@@ -33,11 +33,17 @@ model Favorite {
   routeId     String     // e.g., "Blue", "Red" for trains, "157" for buses
 
   // For trains
-  stationId   String?    // CTA station ID
+  stationId   String?    // CTA station ID (boarding station)
   direction   String?    // e.g., "5" for service toward O'Hare
 
   // For buses
-  stopId      String?    // CTA bus stop ID
+  stopId      String?    // CTA bus stop ID (boarding stop)
+
+  // Trip endpoints (for both trains and buses)
+  boardingStopId     String?  // Where you GET ON (stop ID for bus, station ID for train)
+  boardingStopName   String?  // Display name for boarding location
+  alightingStopId    String?  // Where you GET OFF (stop ID for bus, station ID for train)
+  alightingStopName  String?  // Display name for alighting location
 
   // Display name
   name        String     // User-friendly name: "Blue Line to UIC-Halsted"

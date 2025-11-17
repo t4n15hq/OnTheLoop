@@ -30,6 +30,8 @@ interface Config {
   email?: {
     user: string;
     pass: string;
+    host?: string;
+    port?: number;
   };
   cache: {
     ttl: number;
@@ -64,6 +66,8 @@ const config: Config = {
   email: process.env.EMAIL_USER && process.env.EMAIL_PASS ? {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
+    host: process.env.EMAIL_HOST,
+    port: process.env.EMAIL_PORT ? parseInt(process.env.EMAIL_PORT, 10) : undefined,
   } : undefined,
   cache: {
     ttl: parseInt(process.env.CACHE_TTL || '60', 10),

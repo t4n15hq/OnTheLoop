@@ -7,13 +7,29 @@ class EmailService {
 
   constructor() {
     if (config.email?.user && config.email?.pass) {
-      this.transporter = nodemailer.createTransport({
-        service: 'gmail',
-        auth: {
-          user: config.email.user,
-          pass: config.email.pass,
-        },
-      });
+      // AWS SES configuration (if host and port are specified)
+      if (config.email.host && config.email.port) {
+        this.transporter = nodemailer.createTransport({
+          host: config.email.host,
+          port: config.email.port,
+          secure: config.email.port === 465, // true for 465, false for other ports
+          auth: {
+            user: config.email.user,
+            pass: config.email.pass,
+          },
+        });
+        logger.info(`Email service configured with custom SMTP (${config.email.host}:${config.email.port})`);
+      } else {
+        // Fallback to Gmail
+        this.transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: {
+            user: config.email.user,
+            pass: config.email.pass,
+          },
+        });
+        logger.info('Email service configured with Gmail');
+      }
     } else {
       logger.warn('Email credentials not configured. Email notifications disabled.');
     }

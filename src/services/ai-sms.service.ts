@@ -272,12 +272,13 @@ Examples:
       let response = result.response;
 
       // Check if the model wants to call a tool
-      if (response.functionCall) {
-        const { name, args } = response.functionCall;
+      const functionCall = response.functionCall();
+      if (functionCall) {
+        const { name, args } = functionCall;
         logger.info(`Model requested tool call: ${name} with args: ${JSON.stringify(args)}`);
 
         if (name === "googleSearch") {
-          const toolResult = await AISMSService.executeGoogleSearch(args.query);
+          const toolResult = await AISMSService.executeGoogleSearch((args as any).query);
 
           // Send the tool result back to the model
           result = await chat.sendMessage([

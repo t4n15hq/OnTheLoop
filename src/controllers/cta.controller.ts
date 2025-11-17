@@ -433,7 +433,7 @@ export class CTAController {
 
               // Add following buses
               if (closestStop.arrivals.length > 1) {
-                const following = closestStop.arrivals.slice(1, 3).map(a =>
+                const following = closestStop.arrivals.slice(1, 3).map((a: any) =>
                   a.isApproaching ? 'NOW' : `${a.minutesAway} min`
                 );
                 conversationalResponse += `\n    Then: ${following.join(', ')}`;

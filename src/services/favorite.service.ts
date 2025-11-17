@@ -17,6 +17,7 @@ interface CreateScheduleData {
   favoriteId: string;
   time: string;
   daysOfWeek: number[];
+  enabled?: boolean;
 }
 
 export class FavoriteService {

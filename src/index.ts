@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import path from 'path';
 import config from './config';
 import logger from './utils/logger';
 import { startScheduler } from './services/scheduler.service';
@@ -14,10 +15,21 @@ import ctaRoutes from './routes/cta.routes';
 const app = express();
 
 // Middleware
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+    },
+  },
+}));
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Serve static files from public directory
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Health check
 app.get('/health', (req, res) => {
@@ -29,6 +41,11 @@ app.use('/api/auth', authRoutes);
 app.use('/api/sms', smsRoutes);   // SMS webhook (no auth required)
 app.use('/api/cta', ctaRoutes);
 app.use('/api', favoriteRoutes);  // Catch-all for /api/* (requires auth)
+
+// Serve index.html for all other routes (SPA fallback)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
+});
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

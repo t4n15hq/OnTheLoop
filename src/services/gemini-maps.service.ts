@@ -45,14 +45,7 @@ Address: [full address]
 Latitude: [latitude]
 Longitude: [longitude]`;
 
-      const result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        tools: [
-          {
-            googleSearch: {},
-          },
-        ],
-      });
+      const result = await model.generateContent(prompt);
 
       const response = result.response;
       const text = response.text();
@@ -177,14 +170,7 @@ Longitude: [longitude]`;
 Focus on CTA trains and buses. Be concise and specific about route numbers and directions.
 If the question involves specific locations, include those locations in your response.`;
 
-      const result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        tools: [
-          {
-            googleSearch: {},
-          },
-        ],
-      });
+      const result = await model.generateContent(prompt);
 
       const response = result.response;
       return response.text();

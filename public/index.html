@@ -171,26 +171,17 @@
           </div>
         </div>
 
-        <!-- Journey Endpoints (Optional) -->
+        <!-- Journey Endpoints (REQUIRED) -->
         <div class="input-group">
-          <label class="checkbox-label">
-            <input type="checkbox" id="enable-journey">
-            Track full journey (boarding → alighting stops)
-          </label>
-          <small>Enable this to track where you get on AND off</small>
+          <label for="boarding-stop-name">Boarding Stop <span style="color: #EF4444;">*</span></label>
+          <input type="text" id="boarding-stop-name" placeholder="e.g., Taylor & Racine" required>
+          <small>Where you GET ON the bus/train</small>
         </div>
 
-        <div id="journey-fields" style="display: none;">
-          <div class="input-group">
-            <label for="boarding-stop-name">Boarding Stop Name</label>
-            <input type="text" id="boarding-stop-name" placeholder="e.g., Pulaski">
-            <small>Where you GET ON</small>
-          </div>
-          <div class="input-group">
-            <label for="alighting-stop-name">Alighting Stop Name</label>
-            <input type="text" id="alighting-stop-name" placeholder="e.g., State/Lake">
-            <small>Where you GET OFF</small>
-          </div>
+        <div class="input-group">
+          <label for="alighting-stop-name">Alighting Stop <span style="color: #EF4444;">*</span></label>
+          <input type="text" id="alighting-stop-name" placeholder="e.g., Polk & Wolcott" required>
+          <small>Where you GET OFF the bus/train</small>
         </div>
 
         <div class="input-group">

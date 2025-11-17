@@ -64,6 +64,11 @@ function setupEventListeners() {
   // Train line selection
   document.getElementById('train-line').addEventListener('change', loadTrainStations);
   document.getElementById('train-station').addEventListener('change', loadTrainDirections);
+
+  // Journey tracking toggle
+  document.getElementById('enable-journey').addEventListener('change', (e) => {
+    document.getElementById('journey-fields').style.display = e.target.checked ? 'block' : 'none';
+  });
 }
 
 // API Helper
@@ -345,6 +350,19 @@ async function handleCreateFavorite(e) {
     payload.routeId = routeId;
     payload.direction = direction;
     payload.stopId = stopId;
+
+    // Add journey tracking if enabled
+    if (document.getElementById('enable-journey').checked) {
+      const boardingStopName = document.getElementById('boarding-stop-name').value;
+      const alightingStopName = document.getElementById('alighting-stop-name').value;
+
+      if (boardingStopName && alightingStopName) {
+        payload.boardingStopId = stopId; // Use the selected stop as boarding stop
+        payload.boardingStopName = boardingStopName;
+        payload.alightingStopId = stopId; // For now, use same ID (you can add another selector later)
+        payload.alightingStopName = alightingStopName;
+      }
+    }
   } else {
     const routeId = document.getElementById('train-line').value;
     const stationId = document.getElementById('train-station').value;
@@ -358,6 +376,19 @@ async function handleCreateFavorite(e) {
     payload.routeId = routeId;
     payload.stationId = stationId;
     payload.direction = direction;
+
+    // Add journey tracking if enabled
+    if (document.getElementById('enable-journey').checked) {
+      const boardingStopName = document.getElementById('boarding-stop-name').value;
+      const alightingStopName = document.getElementById('alighting-stop-name').value;
+
+      if (boardingStopName && alightingStopName) {
+        payload.boardingStopId = stationId; // Use the selected station as boarding station
+        payload.boardingStopName = boardingStopName;
+        payload.alightingStopId = stationId; // For now, use same ID (you can add another selector later)
+        payload.alightingStopName = alightingStopName;
+      }
+    }
   }
 
   try {

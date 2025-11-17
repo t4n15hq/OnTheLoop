@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, SchemaType } from '@google/generative-ai';
 import config from '../config';
 import logger from '../utils/logger';
 import { CTAService } from './cta.service';
@@ -29,7 +29,25 @@ export class AISMSService {
       logger.info(`Parsing SMS query: ${query}`);
 
       const model = this.genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.5-flash',
+        safetySettings: [
+          {
+            category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+          {
+            category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+          {
+            category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+          {
+            category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+        ],
       });
 
       const prompt = `You are a CTA transit SMS bot. Parse this user message and extract the intent and parameters.
@@ -180,6 +198,22 @@ Examples:
   }
 
   /**
+   * This is a placeholder for a real Google Search execution.
+   * In a real application, you would integrate with a Google Search API
+   * and return structured results. For now, it returns a mock string.
+   */
+  private static async executeGoogleSearch(query: string): Promise<string> {
+    logger.info(`Executing mock Google Search for query: "${query}"`);
+    // In a real application, you'd call a service like:
+    // const searchResults = await GoogleSearchAPI.search(query);
+    // return JSON.stringify(searchResults); // Return relevant information
+
+    // For demonstration, let's just return a placeholder.
+    // The model might not give good directions without real search results.
+    return `[Mock Search Result for "${query}": A detailed search for CTA directions from ${query} would normally be performed here. Please provide real search results from an external API if you want the model to generate accurate directions.]`;
+  }
+
+  /**
    * Handle transit directions query
    * Example: "How do I get to Willis Tower from Northwestern?"
    */
@@ -188,27 +222,98 @@ Examples:
     destination: string
   ): Promise<string> {
     try {
-      const query = `How do I get from ${origin} to ${destination} using CTA? Provide a brief, step-by-step answer suitable for SMS (under 300 characters). Include specific route numbers and estimated time if possible.`;
-
-      const model = this.genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
-      });
-
-      const result = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: query }] }],
+      const chat = this.genAI.getGenerativeModel({
+        model: 'gemini-2.5-flash',
+        safetySettings: [
+          {
+            category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+          {
+            category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+          {
+            category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+          {
+            category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+            threshold: HarmBlockThreshold.BLOCK_NONE,
+          },
+        ],
+      }).startChat({
         tools: [
           {
-            googleSearch: {},
+            functionDeclarations: [
+              {
+                name: "googleSearch",
+                description: "A tool to perform Google searches to find transit information, points of interest, or resolve locations.",
+                parameters: {
+                  type: SchemaType.OBJECT,
+                  properties: {
+                    query: {
+                      type: SchemaType.STRING,
+                      description: "The search query to be executed.",
+                    },
+                  },
+                  required: ["query"],
+                },
+              },
+            ],
           },
         ],
       });
 
-      let directions = result.response.text();
+
+      const prompt = `How do I get from ${origin} to ${destination} using CTA? Provide a brief, step-by-step answer suitable for SMS (under 300 characters). Include specific route numbers and estimated time if possible.`;
+
+      let result = await chat.sendMessage(prompt);
+      let response = result.response;
+
+      // Check if the model wants to call a tool
+      if (response.functionCall) {
+        const { name, args } = response.functionCall;
+        logger.info(`Model requested tool call: ${name} with args: ${JSON.stringify(args)}`);
+
+        if (name === "googleSearch") {
+          const toolResult = await AISMSService.executeGoogleSearch(args.query);
+
+          // Send the tool result back to the model
+          result = await chat.sendMessage([
+            {
+              text: prompt, // Re-send the original prompt for context
+            },
+            {
+              functionCall: { name, args },
+            },
+            {
+              functionResponse: {
+                name,
+                response: {
+                  content: toolResult, // Use 'content' for string results or other appropriate key
+                },
+              },
+            },
+          ]);
+          response = result.response; // Get the new response after tool execution
+        } else {
+          // Handle unknown tool
+          logger.warn(`Unknown tool called: ${name}`);
+          return 'Sorry, an unknown tool was requested, and I cannot fulfill this request.';
+        }
+      }
+
+      let directions = response.text();
 
       // Truncate if too long for SMS
       if (directions.length > 300) {
         directions = directions.substring(0, 297) + '...';
+      } else if (directions.trim().length === 0) {
+         // Fallback if model still didn't generate text after tool call (or if no tool call was made but no text was generated)
+         return `Sorry, I couldn't find transit directions from ${origin} to ${destination}. Please try rephrasing or check a map.`;
       }
+
 
       return directions;
     } catch (error) {

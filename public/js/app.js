@@ -432,6 +432,10 @@ async function deleteFavorite(id) {
   }
 }
 
+// Make functions globally accessible for onclick handlers
+window.deleteFavorite = deleteFavorite;
+window.checkFavorite = checkFavorite;
+
 // Schedules
 async function loadSchedules() {
   try {
@@ -533,6 +537,9 @@ async function deleteSchedule(id) {
     alert('Error deleting schedule: ' + error.message);
   }
 }
+
+// Make deleteSchedule globally accessible for onclick handlers
+window.deleteSchedule = deleteSchedule;
 
 // Bus Route Helpers
 async function loadBusDirections() {

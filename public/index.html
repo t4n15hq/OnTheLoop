@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CTA Tracker</title>
+  <title>Loop - Your CTA, On Loop</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -11,8 +14,12 @@
   <div id="auth-view" class="view">
     <div class="container">
       <div class="auth-box">
-        <h1>CTA Tracker</h1>
-        <p class="subtitle">Never miss your bus or train</p>
+        <div class="logo-container">
+          <div class="logo-icon">⟲</div>
+          <h1 class="logo-text">Loop</h1>
+        </div>
+        <p class="tagline">Your CTA, On Loop</p>
+        <p class="subtitle">Real-time transit tracking powered by AI</p>
 
         <!-- Login/Register Form -->
         <div id="login-form" class="form-container active">
@@ -37,7 +44,10 @@
   <div id="dashboard-view" class="view" style="display: none;">
     <nav class="navbar">
       <div class="container">
-        <h1>CTA Tracker</h1>
+        <div class="nav-brand">
+          <div class="logo-icon-small">⟲</div>
+          <h1>Loop</h1>
+        </div>
         <button id="logout-btn" class="btn btn-text">Logout</button>
       </div>
     </nav>

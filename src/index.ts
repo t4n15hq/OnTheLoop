@@ -9,6 +9,7 @@ import { startScheduler } from './services/scheduler.service';
 import authRoutes from './routes/auth.routes';
 import favoriteRoutes from './routes/favorite.routes';
 import smsRoutes from './routes/sms.routes';
+import ctaRoutes from './routes/cta.routes';
 
 const app = express();
 
@@ -27,6 +28,7 @@ app.get('/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api', favoriteRoutes);
 app.use('/api/sms', smsRoutes);
+app.use('/api/cta', ctaRoutes);
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

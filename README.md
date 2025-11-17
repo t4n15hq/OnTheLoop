@@ -110,6 +110,69 @@ The API will be available at `http://localhost:3000`
 
 ## API Documentation
 
+### User Workflow: Setting Up Your First Favorite
+
+**Example**: You live on Lytle St and want to track the Route 60 Eastbound bus.
+
+1. **Find your route** by listing all bus routes:
+   ```bash
+   curl http://localhost:3000/api/cta/bus/routes
+   ```
+   Look for "60" in the response.
+
+2. **Get directions** for Route 60:
+   ```bash
+   curl http://localhost:3000/api/cta/bus/60/directions
+   ```
+   You'll see "Eastbound" and "Westbound".
+
+3. **Find your stop** using search:
+   ```bash
+   curl "http://localhost:3000/api/cta/bus/60/stops?direction=Eastbound&search=Lytle"
+   ```
+   Or use your location (if you have GPS coordinates):
+   ```bash
+   curl "http://localhost:3000/api/cta/bus/60/stops/nearby?direction=Eastbound&lat=41.8781&lon=-87.6298&radius=0.25"
+   ```
+   Note the `stpid` (stop ID) from the response, e.g., "1234".
+
+4. **Register** and get your auth token:
+   ```bash
+   curl -X POST http://localhost:3000/api/auth/register \
+     -H "Content-Type: application/json" \
+     -d '{"phoneNumber":"+15551234567","password":"secure123"}'
+   ```
+   Save the `token` from the response.
+
+5. **Create a favorite** with the stop ID you found:
+   ```bash
+   curl -X POST http://localhost:3000/api/favorites \
+     -H "Authorization: Bearer YOUR_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "routeType":"BUS",
+       "routeId":"60",
+       "stopId":"1234",
+       "name":"Route 60 East at Lytle"
+     }'
+   ```
+
+6. **Schedule notifications** for when you need them:
+   ```bash
+   curl -X POST http://localhost:3000/api/schedules \
+     -H "Authorization: Bearer YOUR_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "favoriteId":"FAVORITE_ID_FROM_STEP_5",
+       "time":"08:45",
+       "daysOfWeek":[1,2,3,4,5]
+     }'
+   ```
+
+7. **Text the number** to get on-demand updates:
+   - Text "60" to get next 3 arrivals
+   - Text "favorites" to see all your routes
+
 ### Authentication
 
 #### Register
@@ -146,6 +209,118 @@ Content-Type: application/json
 {
   "phoneNumber": "+15551234567",
   "password": "securepassword123"
+}
+```
+
+### CTA Route & Stop Lookup
+
+These endpoints help you find route information and stop IDs needed to create favorites.
+
+#### Get All Bus Routes
+
+```http
+GET /api/cta/bus/routes
+```
+
+Response:
+```json
+{
+  "routes": [
+    {
+      "rt": "60",
+      "rtnm": "Blue Island/26th",
+      "rtclr": "#336633"
+    },
+    {
+      "rt": "157",
+      "rtnm": "Streeterville/Taylor",
+      "rtclr": "#ff6633"
+    }
+  ]
+}
+```
+
+#### Get Directions for a Route
+
+```http
+GET /api/cta/bus/60/directions
+```
+
+Response:
+```json
+{
+  "route": "60",
+  "directions": ["Eastbound", "Westbound"]
+}
+```
+
+#### Get Stops for a Route
+
+```http
+GET /api/cta/bus/60/stops?direction=Eastbound
+```
+
+Optional query param `search` to filter stops:
+```http
+GET /api/cta/bus/60/stops?direction=Eastbound&search=Lytle
+```
+
+Response:
+```json
+{
+  "route": "60",
+  "direction": "Eastbound",
+  "stops": [
+    {
+      "stpid": "1234",
+      "stpnm": "Blue Island at Lytle",
+      "lat": 41.8781,
+      "lon": -87.6298
+    }
+  ]
+}
+```
+
+#### Find Nearby Stops
+
+Find stops near your current location:
+
+```http
+GET /api/cta/bus/60/stops/nearby?direction=Eastbound&lat=41.8781&lon=-87.6298&radius=0.5
+```
+
+Response:
+```json
+{
+  "route": "60",
+  "direction": "Eastbound",
+  "location": { "lat": 41.8781, "lon": -87.6298 },
+  "radius": 0.5,
+  "stops": [
+    {
+      "stpid": "1234",
+      "stpnm": "Blue Island at Lytle",
+      "lat": 41.8781,
+      "lon": -87.6298,
+      "distance": 0.05
+    }
+  ]
+}
+```
+
+#### Get All Train Lines
+
+```http
+GET /api/cta/train/lines
+```
+
+Response:
+```json
+{
+  "lines": [
+    { "route": "Red", "name": "Red Line", "color": "#c60c30" },
+    { "route": "Blue", "name": "Blue Line", "color": "#00a1de" }
+  ]
 }
 ```
 

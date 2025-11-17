@@ -3,6 +3,8 @@ import { SMSService } from '../services/sms.service';
 import { AuthService } from '../services/auth.service';
 import { FavoriteService } from '../services/favorite.service';
 import { CTAService } from '../services/cta.service';
+import { AISMSService } from '../services/ai-sms.service';
+import config from '../config';
 import logger from '../utils/logger';
 
 export class SMSController {
@@ -31,18 +33,22 @@ export class SMSController {
       // Parse the message
       const message = body.trim();
 
-      // Check if it's a route query (e.g., "157" for bus route)
-      if (/^\d+$/.test(message)) {
-        await this.handleRouteQuery(from, message, user.id);
-      } else if (message.toLowerCase() === 'favorites' || message.toLowerCase() === 'fav') {
-        // Send all favorites
-        await this.handleFavoritesQuery(from, user.id);
+      // Check if AI (Gemini) is available
+      const hasGemini = config.google.geminiApiKey && config.google.geminiApiKey.length > 0;
+
+      if (hasGemini) {
+        // Use AI to process the query
+        try {
+          const response = await AISMSService.processQuery(user.id, message);
+          await SMSService.sendSMS(from, response);
+        } catch (aiError) {
+          logger.error('AI processing failed, falling back to simple logic:', aiError);
+          // Fall back to simple logic
+          await this.handleSimpleQuery(from, message, user.id);
+        }
       } else {
-        // Unknown command
-        await SMSService.sendSMS(
-          from,
-          'Commands:\n- Send a route number (e.g., "157") for next arrivals\n- Send "favorites" to see your saved routes'
-        );
+        // Use simple logic (original behavior)
+        await this.handleSimpleQuery(from, message, user.id);
       }
 
       // Respond to Twilio
@@ -50,6 +56,29 @@ export class SMSController {
     } catch (error) {
       logger.error('Error handling incoming SMS:', error);
       res.status(500).send('<Response></Response>');
+    }
+  }
+
+  /**
+   * Handle simple queries (fallback when AI is not available)
+   */
+  private static async handleSimpleQuery(
+    phoneNumber: string,
+    message: string,
+    userId: string
+  ): Promise<void> {
+    // Check if it's a route query (e.g., "157" for bus route)
+    if (/^\d+$/.test(message)) {
+      await this.handleRouteQuery(phoneNumber, message, userId);
+    } else if (message.toLowerCase() === 'favorites' || message.toLowerCase() === 'fav') {
+      // Send all favorites
+      await this.handleFavoritesQuery(phoneNumber, userId);
+    } else {
+      // Unknown command
+      await SMSService.sendSMS(
+        phoneNumber,
+        'Commands:\n- Send a route number (e.g., "157") for next arrivals\n- Send "favorites" to see your saved routes'
+      );
     }
   }
 

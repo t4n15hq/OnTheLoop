@@ -4,9 +4,10 @@ A smart CTA (Chicago Transit Authority) tracking service that sends scheduled SM
 
 ## Features
 
+- **AI-Powered SMS**: Text questions in plain English and get intelligent responses with real arrival times (powered by Google Gemini AI)
 - **Scheduled Notifications**: Get arrival times sent to your phone at specific times (e.g., "Send Blue Line times at 8:45 AM and 9:00 AM on weekdays")
-- **On-Demand SMS Queries**: Text a route number to get instant arrival predictions
-- **Natural Language Location Search**: Find stops using plain English like "coffee shop near Northwestern" (powered by Google Gemini AI)
+- **Natural Language Queries**: Ask "When is the next 60 bus?" or "How do I get to Willis Tower?" via SMS or API
+- **Smart Location Search**: Find stops using descriptions like "coffee shop near Northwestern" or "my office at 123 Main St"
 - **Favorites Management**: Save your frequently used routes with custom names
 - **Multi-User Support**: Secure authentication with JWT tokens
 - **Redis Caching**: Fast response times with intelligent caching
@@ -530,15 +531,11 @@ Authorization: Bearer <token>
 
 ## SMS Usage
 
-### On-Demand Queries
+### AI-Powered Natural Language Queries
 
-Once registered, you can text your Twilio number:
+With Google Gemini API configured, users can text in **plain English**! The system understands:
 
-1. **Route Query**: Text a route number (e.g., "157") to get the next 3 arrivals for that route
-2. **Favorites**: Text "favorites" or "fav" to see all your saved routes with current arrival times
-
-### Example Conversations
-
+**Simple Route Queries:**
 ```
 You: 157
 Bot: Route 157 Northbound
@@ -553,18 +550,66 @@ Bot: Route 157 Northbound
    20 min
 ```
 
+**Natural Language Route Queries:**
+```
+You: When is the next 60 bus?
+Bot: Route 60 East at Lytle
+
+1. Blue Island at Lytle
+   4 min
+
+2. Blue Island at Morgan
+   12 min
+
+3. Blue Island at Halsted
+   23 min
+```
+
+**Find Stops Near Locations:**
+```
+You: Find Route 60 stops near Lytle Street
+Bot: Route 60 Eastbound
+Near: Lytle Street, Chicago
+
+1. Blue Island at Lytle
+   0.05 mi away
+
+2. Blue Island at Morgan
+   0.12 mi away
+
+Text route number for arrivals or reply SAVE to add favorite.
+```
+
+**Transit Directions:**
+```
+You: How do I get to Willis Tower from Northwestern?
+Bot: Take Purple Line southbound to Loop. Transfer to Red Line at Howard. Get off at Jackson (25 min). Walk 3 blocks west to Willis Tower.
+```
+
+**View Favorites:**
 ```
 You: favorites
 Bot: Your Favorites:
 
-Blue Line to O'Hare from Jackson
-  → O'Hare: 3 min
-  → O'Hare: 9 min
+60: 4min, 12min
+Blue: 3min, 9min
+157: 6min, 15min
 
-Route 157 Northbound
-  → Howard Station: 5 min
-  → Loyola Station: 12 min
+Text route number for details.
 ```
+
+### Supported Query Types
+
+1. **Route Arrivals**: "157", "When is the next Blue Line?", "Next bus on route 60"
+2. **Find Stops**: "Find Route 60 stops near [location]", "Where can I catch the 157 near Northwestern?"
+3. **Transit Directions**: "How do I get from [A] to [B]?", "Route from O'Hare to downtown"
+4. **Favorites**: "favorites", "fav", "show my routes"
+
+### Fallback Mode
+
+If Gemini API is not configured, the system works in simple mode:
+- Text a route number (e.g., "157") for arrivals
+- Text "favorites" to see saved routes
 
 ## Finding CTA IDs
 

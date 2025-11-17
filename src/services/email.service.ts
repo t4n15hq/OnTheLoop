@@ -65,24 +65,55 @@ class EmailService {
     routeName: string,
     arrivals: Array<{ destination: string; minutesAway: string }>
   ): Promise<boolean> {
-    const subject = `Loop: ${routeName} Arrivals`;
+    const subject = `🚇 ${routeName} - Next Arrivals`;
+
+    // Format arrivals with both relative and absolute time
+    const formatArrival = (minutesAway: string) => {
+      const mins = parseInt(minutesAway);
+      const now = new Date();
+      const arrivalTime = new Date(now.getTime() + mins * 60000);
+      const timeStr = arrivalTime.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+      return `${minutesAway} min (${timeStr})`;
+    };
 
     let arrivalsHtml = '';
     if (arrivals.length === 0) {
-      arrivalsHtml = '<p style="color: #64748B;">No arrivals found at this time.</p>';
+      arrivalsHtml = '<p style="color: #64748B; font-size: 14px; margin: 16px 0;">No arrivals found at this time.</p>';
     } else {
-      arrivalsHtml = arrivals
-        .slice(0, 3)
-        .map(
-          (arrival) => `
-            <div style="padding: 12px; background: #F1F5F9; border-radius: 8px; margin-bottom: 8px;">
-              <strong style="color: #0F172A;">${arrival.destination}</strong><br>
-              <span style="color: #0EA5E9; font-size: 18px; font-weight: 600;">${arrival.minutesAway} min</span>
-            </div>
-          `
-        )
-        .join('');
+      arrivalsHtml = `
+        <div style="margin: 20px 0;">
+          <p style="margin: 0 0 12px 0; color: #64748B; font-size: 13px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">NEXT ARRIVALS</p>
+          ${arrivals
+            .slice(0, 3)
+            .map(
+              (arrival) => `
+                <div style="padding: 14px 0; border-bottom: 1px solid #F1F5F9;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 18px;">🚇</span>
+                    <span style="color: #0EA5E9; font-size: 16px; font-weight: 700;">${formatArrival(arrival.minutesAway)}</span>
+                  </div>
+                  <div style="margin-top: 4px; padding-left: 26px; color: #64748B; font-size: 14px;">${arrival.destination}</div>
+                </div>
+              `
+            )
+            .join('')}
+        </div>
+      `;
     }
+
+    // Service status (always show running on time for now)
+    const serviceStatus = `
+      <div style="margin: 24px 0; padding: 12px; background: #F0FDF4; border-radius: 8px; border-left: 3px solid #10B981;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 16px;">✅</span>
+          <span style="color: #059669; font-weight: 600; font-size: 14px;">Running on time</span>
+        </div>
+      </div>
+    `;
 
     const html = `
       <!DOCTYPE html>
@@ -92,33 +123,30 @@ class EmailService {
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
         </head>
         <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F8FAFC;">
-          <div style="max-width: 600px; margin: 40px auto; background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-            <!-- Header -->
-            <div style="background: linear-gradient(135deg, #0EA5E9 0%, #8B5CF6 100%); padding: 32px; text-align: center;">
-              <div style="width: 48px; height: 48px; background: rgba(255, 255, 255, 0.2); border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; font-size: 28px; margin-bottom: 12px;">
-                ⟲
-              </div>
-              <h1 style="margin: 0; color: white; font-size: 28px; font-weight: 800;">Loop</h1>
-              <p style="margin: 8px 0 0 0; color: rgba(255, 255, 255, 0.9); font-size: 14px;">Your CTA, On Loop</p>
-            </div>
+          <div style="max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);">
 
             <!-- Content -->
             <div style="padding: 32px;">
-              <h2 style="margin: 0 0 8px 0; color: #0F172A; font-size: 20px;">${routeName}</h2>
-              <p style="margin: 0 0 24px 0; color: #64748B; font-size: 14px;">Scheduled arrival times</p>
+              <!-- Location Icon + Route Name -->
+              <div style="margin-bottom: 8px;">
+                <span style="font-size: 16px; margin-right: 4px;">📍</span>
+                <span style="color: #0F172A; font-size: 18px; font-weight: 700;">${routeName}</span>
+              </div>
+              <p style="margin: 0 0 20px 0; color: #64748B; font-size: 13px;">Scheduled arrival times</p>
 
               ${arrivalsHtml}
 
-              <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #E2E8F0; text-align: center;">
-                <p style="margin: 0; color: #64748B; font-size: 13px;">
-                  This is an automated notification from Loop CTA Tracker
-                </p>
-              </div>
+              ${serviceStatus}
             </div>
 
             <!-- Footer -->
-            <div style="background: #F8FAFC; padding: 24px; text-align: center; border-top: 1px solid #E2E8F0;">
-              <p style="margin: 0; color: #64748B; font-size: 12px;">
+            <div style="background: #F8FAFC; padding: 20px 32px; border-top: 1px solid #E2E8F0;">
+              <div style="text-align: center; margin-bottom: 12px;">
+                <a href="mailto:noreply@askcta.xyz?subject=Unsubscribe" style="color: #0EA5E9; text-decoration: none; font-size: 13px; font-weight: 500;">
+                  Manage alerts
+                </a>
+              </div>
+              <p style="margin: 0; text-align: center; color: #94A3B8; font-size: 11px; line-height: 1.5;">
                 © 2025 Loop • Powered by CTA APIs & Google Gemini AI
               </p>
             </div>

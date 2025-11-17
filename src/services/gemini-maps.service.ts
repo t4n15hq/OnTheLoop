@@ -32,7 +32,7 @@ export class GeminiMapsService {
 
       // Use Gemini Flash with Google Search grounding
       const model = this.genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.5-flash',
       });
 
       // Create a prompt that asks for location information
@@ -169,7 +169,7 @@ Longitude: [longitude]`;
       logger.info(`Getting transit suggestion for: ${query}`);
 
       const model = this.genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+        model: 'gemini-2.5-flash',
       });
 
       const prompt = `You are a Chicago CTA transit assistant. Answer this question: "${query}"

@@ -35,4 +35,25 @@ router.get('/bus/:routeId/stops/nearby', CTAController.findNearbyStops);
  */
 router.get('/train/lines', CTAController.getTrainLines);
 
+/**
+ * GET /api/cta/location/resolve
+ * Resolve a natural language location to coordinates using Gemini
+ * Query params: query (e.g., "Willis Tower" or "coffee shop near Northwestern")
+ */
+router.get('/location/resolve', CTAController.resolveLocation);
+
+/**
+ * GET /api/cta/bus/:routeId/stops/near-location
+ * Find stops near a natural language location using Gemini
+ * Query params: direction, location (natural language), radius (optional)
+ */
+router.get('/bus/:routeId/stops/near-location', CTAController.findStopsNearNaturalLocation);
+
+/**
+ * GET /api/cta/transit/ask
+ * Get transit suggestions using natural language
+ * Query params: query (e.g., "How do I get from Northwestern to downtown?")
+ */
+router.get('/transit/ask', CTAController.getTransitSuggestion);
+
 export default router;

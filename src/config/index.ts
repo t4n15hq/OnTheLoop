@@ -24,6 +24,9 @@ interface Config {
     authToken: string;
     phoneNumber: string;
   };
+  google: {
+    geminiApiKey: string;
+  };
   cache: {
     ttl: number;
   };
@@ -50,6 +53,9 @@ const config: Config = {
     accountSid: process.env.TWILIO_ACCOUNT_SID || '',
     authToken: process.env.TWILIO_AUTH_TOKEN || '',
     phoneNumber: process.env.TWILIO_PHONE_NUMBER || '',
+  },
+  google: {
+    geminiApiKey: process.env.GOOGLE_GEMINI_API_KEY || '',
   },
   cache: {
     ttl: parseInt(process.env.CACHE_TTL || '60', 10),

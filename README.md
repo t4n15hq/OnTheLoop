@@ -6,6 +6,7 @@ A smart CTA (Chicago Transit Authority) tracking service that sends scheduled SM
 
 - **Scheduled Notifications**: Get arrival times sent to your phone at specific times (e.g., "Send Blue Line times at 8:45 AM and 9:00 AM on weekdays")
 - **On-Demand SMS Queries**: Text a route number to get instant arrival predictions
+- **Natural Language Location Search**: Find stops using plain English like "coffee shop near Northwestern" (powered by Google Gemini AI)
 - **Favorites Management**: Save your frequently used routes with custom names
 - **Multi-User Support**: Secure authentication with JWT tokens
 - **Redis Caching**: Fast response times with intelligent caching
@@ -17,6 +18,7 @@ A smart CTA (Chicago Transit Authority) tracking service that sends scheduled SM
 - **Database**: PostgreSQL with Prisma ORM
 - **Cache & Jobs**: Redis, BullMQ
 - **SMS**: Twilio
+- **AI**: Google Gemini (for natural language location resolution)
 - **APIs**: CTA Train Tracker & Bus Tracker APIs
 
 ## Prerequisites
@@ -25,6 +27,7 @@ A smart CTA (Chicago Transit Authority) tracking service that sends scheduled SM
 - Docker and Docker Compose (for PostgreSQL and Redis)
 - Twilio account (for SMS functionality)
 - CTA API keys (free from [CTA Developer Portal](https://www.transitchicago.com/developers/))
+- Google Gemini API key (optional, for natural language location search - get it from [Google AI Studio](https://ai.google.dev/))
 
 ## Quick Start
 
@@ -70,6 +73,9 @@ CTA_BUS_API_KEY=your-cta-bus-api-key
 TWILIO_ACCOUNT_SID=your-twilio-account-sid
 TWILIO_AUTH_TOKEN=your-twilio-auth-token
 TWILIO_PHONE_NUMBER=+1234567890
+
+# Google Gemini API (for natural language location search)
+GOOGLE_GEMINI_API_KEY=your-google-gemini-api-key
 
 # Cache TTL (seconds)
 CACHE_TTL=60
@@ -323,6 +329,94 @@ Response:
   ]
 }
 ```
+
+### Natural Language Location Search (Gemini AI)
+
+Use Google's Gemini AI with Maps grounding to find stops using natural language instead of coordinates!
+
+#### Resolve a Location
+
+Convert natural language to coordinates:
+
+```http
+GET /api/cta/location/resolve?query=Willis Tower
+```
+
+or
+
+```http
+GET /api/cta/location/resolve?query=coffee shop near Northwestern University
+```
+
+Response:
+```json
+{
+  "location": {
+    "name": "Willis Tower",
+    "address": "233 S Wacker Dr, Chicago, IL 60606",
+    "coordinates": {
+      "lat": 41.8789,
+      "lon": -87.6359
+    }
+  }
+}
+```
+
+#### Find Stops Near a Location (Natural Language)
+
+Find bus stops using natural language location descriptions:
+
+```http
+GET /api/cta/bus/60/stops/near-location?direction=Eastbound&location=my office at Northwestern University&radius=0.5
+```
+
+Response:
+```json
+{
+  "route": "60",
+  "direction": "Eastbound",
+  "location": {
+    "name": "Northwestern University",
+    "address": "633 Clark St, Evanston, IL 60208",
+    "coordinates": {
+      "lat": 42.0565,
+      "lon": -87.6753
+    }
+  },
+  "radius": 0.5,
+  "stops": [
+    {
+      "stpid": "5678",
+      "stpnm": "Chicago Ave at Campus Dr",
+      "lat": 42.0571,
+      "lon": -87.6748,
+      "distance": 0.08
+    }
+  ]
+}
+```
+
+#### Ask Transit Questions
+
+Get natural language transit suggestions:
+
+```http
+GET /api/cta/transit/ask?query=How do I get from Northwestern to Willis Tower using CTA?
+```
+
+Response:
+```json
+{
+  "query": "How do I get from Northwestern to Willis Tower using CTA?",
+  "suggestion": "To get from Northwestern University in Evanston to Willis Tower in downtown Chicago using CTA:\n\n1. Take the Purple Line from any Evanston station heading southbound toward the Loop\n2. Transfer at Howard station to the Red Line southbound\n3. Get off at Jackson station\n4. Walk about 3 blocks west to Willis Tower at 233 S Wacker Drive\n\nAlternatively, you can take the Purple Line Express during rush hours which goes directly to the Loop without the transfer."
+}
+```
+
+**Example Use Cases:**
+- "Find Route 157 stops near my apartment at 123 Main St"
+- "Show me Blue Line stations near the Art Institute"
+- "Where can I catch the 66 bus near Millennium Park?"
+- "How do I get from O'Hare Airport to Navy Pier?"
 
 ### Favorites Management
 

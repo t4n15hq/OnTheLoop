@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { CTALookupService } from '../services/cta-lookup.service';
+import { GeminiMapsService } from '../services/gemini-maps.service';
 import logger from '../utils/logger';
 
 export class CTAController {
@@ -127,6 +128,98 @@ export class CTAController {
       res.status(200).json({ lines });
     } catch (error: any) {
       logger.error('Get train lines error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  /**
+   * Resolve a natural language location query to coordinates
+   * Example: "coffee shop near Northwestern University"
+   */
+  static async resolveLocation(req: Request, res: Response): Promise<void> {
+    try {
+      const { query } = req.query;
+
+      if (!query || typeof query !== 'string') {
+        res.status(400).json({ error: 'Location query is required' });
+        return;
+      }
+
+      const location = await GeminiMapsService.resolveLocation(query);
+
+      if (!location) {
+        res.status(404).json({ error: 'Could not resolve location' });
+        return;
+      }
+
+      res.status(200).json({ location });
+    } catch (error: any) {
+      logger.error('Resolve location error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  /**
+   * Find stops near a natural language location
+   * Example: Find Route 60 stops near "Willis Tower"
+   */
+  static async findStopsNearNaturalLocation(req: Request, res: Response): Promise<void> {
+    try {
+      const { routeId } = req.params;
+      const { direction, location, radius } = req.query;
+
+      if (!routeId || !direction || !location) {
+        res.status(400).json({
+          error: 'Route ID, direction, and location query are required',
+        });
+        return;
+      }
+
+      const radiusMiles = radius ? parseFloat(radius as string) : 0.5;
+
+      const result = await GeminiMapsService.findStopsNearLocation(
+        location as string,
+        routeId,
+        direction as string,
+        radiusMiles
+      );
+
+      if (!result) {
+        res.status(404).json({ error: 'Could not find stops near location' });
+        return;
+      }
+
+      res.status(200).json({
+        route: routeId,
+        direction,
+        location: result.location,
+        radius: radiusMiles,
+        stops: result.stops,
+      });
+    } catch (error: any) {
+      logger.error('Find stops near natural location error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  /**
+   * Get transit suggestions using natural language
+   * Example: "How do I get from Northwestern to downtown?"
+   */
+  static async getTransitSuggestion(req: Request, res: Response): Promise<void> {
+    try {
+      const { query } = req.query;
+
+      if (!query || typeof query !== 'string') {
+        res.status(400).json({ error: 'Transit query is required' });
+        return;
+      }
+
+      const suggestion = await GeminiMapsService.getTransitSuggestion(query);
+
+      res.status(200).json({ query, suggestion });
+    } catch (error: any) {
+      logger.error('Get transit suggestion error:', error);
       res.status(500).json({ error: error.message });
     }
   }

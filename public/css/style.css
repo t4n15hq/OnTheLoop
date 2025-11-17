@@ -446,6 +446,7 @@ input:checked + .toggle-slider:before {
 .chat-messages {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 24px;
   background: var(--bg);
   border-radius: 8px;
@@ -454,6 +455,7 @@ input:checked + .toggle-slider:before {
   flex-direction: column;
   gap: 20px;
   min-height: 0;
+  max-height: 100%;
 }
 
 .chat-message {
@@ -489,9 +491,11 @@ input:checked + .toggle-slider:before {
   border-radius: 12px;
   background: var(--card-bg);
   box-shadow: var(--shadow);
-  max-width: 85%;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  white-space: normal;
+  overflow: visible;
+  height: auto;
 }
 
 .user-message .message-content {
@@ -562,12 +566,12 @@ input:checked + .toggle-slider:before {
 
 .chat-input-form {
   display: flex;
+  flex-direction: column;
   gap: 12px;
-  align-items: stretch;
 }
 
 .chat-input-form input {
-  flex: 1;
+  width: 100%;
   padding: 16px 20px;
   font-size: 1rem;
   border: 2px solid var(--border);
@@ -581,6 +585,7 @@ input:checked + .toggle-slider:before {
 }
 
 .chat-input-form button {
+  width: 100%;
   padding: 16px 32px;
   border-radius: 12px;
   font-size: 1rem;

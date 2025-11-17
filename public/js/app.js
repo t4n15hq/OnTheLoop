@@ -201,8 +201,12 @@ function addChatMessage(text, type, arrivals = null) {
 
   let contentHtml = `<div class="message-avatar">${avatar}</div><div class="message-content">`;
 
-  // Format the text with line breaks
-  const formattedText = text.replace(/\n/g, '<br>');
+  // Format the text - convert markdown to HTML and clean up
+  let formattedText = text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold **text**
+    .replace(/\*(.*?)\*/g, '<em>$1</em>') // Italic *text*
+    .replace(/\n/g, '<br>'); // Line breaks
+
   contentHtml += `<p>${formattedText}</p>`;
 
   // Add arrivals if present

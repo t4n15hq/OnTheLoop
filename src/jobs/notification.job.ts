@@ -1,4 +1,4 @@
-import { Queue, Worker, QueueScheduler } from 'bullmq';
+import { Queue, Worker } from 'bullmq';
 import redis from '../utils/redis';
 import logger from '../utils/logger';
 import { FavoriteService } from '../services/favorite.service';
@@ -9,11 +9,6 @@ const NOTIFICATION_QUEUE_NAME = 'notifications';
 
 // Create queue
 export const notificationQueue = new Queue(NOTIFICATION_QUEUE_NAME, {
-  connection: redis,
-});
-
-// Create scheduler for repeatable jobs
-export const notificationScheduler = new QueueScheduler(NOTIFICATION_QUEUE_NAME, {
   connection: redis,
 });
 

@@ -27,6 +27,10 @@ interface Config {
   google: {
     geminiApiKey: string;
   };
+  email?: {
+    user: string;
+    pass: string;
+  };
   cache: {
     ttl: number;
   };
@@ -57,6 +61,10 @@ const config: Config = {
   google: {
     geminiApiKey: process.env.GOOGLE_GEMINI_API_KEY || '',
   },
+  email: process.env.EMAIL_USER && process.env.EMAIL_PASS ? {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  } : undefined,
   cache: {
     ttl: parseInt(process.env.CACHE_TTL || '60', 10),
   },

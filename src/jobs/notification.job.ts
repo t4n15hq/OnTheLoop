@@ -4,6 +4,8 @@ import logger from '../utils/logger';
 import { FavoriteService } from '../services/favorite.service';
 import { CTAService } from '../services/cta.service';
 import { SMSService } from '../services/sms.service';
+import EmailService from '../services/email.service';
+import { AuthService } from '../services/auth.service';
 
 const NOTIFICATION_QUEUE_NAME = 'notifications';
 
@@ -64,11 +66,36 @@ async function processNotification(jobData: NotificationJobData) {
       title = favorite.name;
     }
 
-    // Format and send SMS
-    const message = CTAService.formatArrivalsForSMS(arrivals, title);
-    await SMSService.sendSMS(phoneNumber, message);
+    // Get user to check for email
+    const user = await AuthService.getUserByPhone(phoneNumber);
 
-    logger.info(`Notification sent for favorite ${favoriteId} to ${phoneNumber}`);
+    // Send SMS (if Twilio is configured and working)
+    try {
+      const message = CTAService.formatArrivalsForSMS(arrivals, title);
+      await SMSService.sendSMS(phoneNumber, message);
+      logger.info(`SMS notification sent for favorite ${favoriteId} to ${phoneNumber}`);
+    } catch (smsError) {
+      logger.warn(`Failed to send SMS for favorite ${favoriteId}:`, smsError);
+    }
+
+    // Send Email (if user has email configured)
+    if (user?.email) {
+      try {
+        const formattedArrivals = arrivals.map(a => ({
+          destination: a.destination,
+          minutesAway: a.minutesAway.toString(),
+        }));
+
+        await EmailService.sendArrivalNotification(
+          user.email,
+          title,
+          formattedArrivals
+        );
+        logger.info(`Email notification sent for favorite ${favoriteId} to ${user.email}`);
+      } catch (emailError) {
+        logger.warn(`Failed to send email for favorite ${favoriteId}:`, emailError);
+      }
+    }
   } catch (error) {
     logger.error(`Error processing notification for favorite ${favoriteId}:`, error);
     throw error;

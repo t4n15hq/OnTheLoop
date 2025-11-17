@@ -53,6 +53,13 @@ h2 {
   margin-bottom: 2rem;
 }
 
+.form-description {
+  color: var(--text-light);
+  font-size: 0.875rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
 /* Auth View */
 .auth-box {
   max-width: 400px;

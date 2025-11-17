@@ -149,4 +149,82 @@ export class AuthService {
       throw error;
     }
   }
+
+  /**
+   * Register a new user (phone-only, no password)
+   */
+  static async registerPhoneOnly(phoneNumber: string) {
+    try {
+      // Check if user already exists
+      const existingUser = await prisma.user.findUnique({
+        where: { phoneNumber },
+      });
+
+      if (existingUser) {
+        throw new Error('User with this phone number already exists');
+      }
+
+      // Create user with a dummy password (not used)
+      const user = await prisma.user.create({
+        data: {
+          phoneNumber,
+          password: await this.hashPassword(phoneNumber), // Use phone as dummy password
+        },
+        select: {
+          id: true,
+          phoneNumber: true,
+          createdAt: true,
+        },
+      });
+
+      // Generate token
+      const token = this.generateToken({
+        userId: user.id,
+        phoneNumber: user.phoneNumber,
+      });
+
+      logger.info(`User registered (phone-only): ${phoneNumber}`);
+
+      return { user, token };
+    } catch (error) {
+      logger.error('Phone-only registration error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Login user (phone-only, no password)
+   */
+  static async loginPhoneOnly(phoneNumber: string) {
+    try {
+      // Find user
+      const user = await prisma.user.findUnique({
+        where: { phoneNumber },
+      });
+
+      if (!user) {
+        throw new Error('User not found. Please register first.');
+      }
+
+      // Generate token
+      const token = this.generateToken({
+        userId: user.id,
+        phoneNumber: user.phoneNumber,
+      });
+
+      logger.info(`User logged in (phone-only): ${phoneNumber}`);
+
+      return {
+        user: {
+          id: user.id,
+          phoneNumber: user.phoneNumber,
+          createdAt: user.createdAt,
+        },
+        token,
+      };
+    } catch (error) {
+      logger.error('Phone-only login error:', error);
+      throw error;
+    }
+  }
 }

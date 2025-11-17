@@ -6,7 +6,7 @@ import logger from '../utils/logger';
 
 export class AuthController {
   /**
-   * Register a new user
+   * Register a new user (phone-only authentication)
    */
   static async register(req: Request, res: Response): Promise<void> {
     try {
@@ -17,13 +17,13 @@ export class AuthController {
         return;
       }
 
-      const { phoneNumber, password } = req.body;
+      const { phoneNumber } = req.body;
 
       // Format phone number
       const formattedPhone = SMSService.formatPhoneNumber(phoneNumber);
 
-      // Register user
-      const result = await AuthService.register(formattedPhone, password);
+      // Register user (phone-only, no password)
+      const result = await AuthService.registerPhoneOnly(formattedPhone);
 
       res.status(201).json({
         message: 'User registered successfully',
@@ -37,7 +37,7 @@ export class AuthController {
   }
 
   /**
-   * Login user
+   * Login user (phone-only authentication)
    */
   static async login(req: Request, res: Response): Promise<void> {
     try {
@@ -48,13 +48,13 @@ export class AuthController {
         return;
       }
 
-      const { phoneNumber, password } = req.body;
+      const { phoneNumber } = req.body;
 
       // Format phone number
       const formattedPhone = SMSService.formatPhoneNumber(phoneNumber);
 
-      // Login user
-      const result = await AuthService.login(formattedPhone, password);
+      // Login user (phone-only, no password)
+      const result = await AuthService.loginPhoneOnly(formattedPhone);
 
       res.status(200).json({
         message: 'Login successful',
@@ -68,25 +68,19 @@ export class AuthController {
   }
 }
 
-// Validation middleware
+// Validation middleware (phone-only)
 export const registerValidation = [
   body('phoneNumber')
     .notEmpty()
     .withMessage('Phone number is required')
     .isMobilePhone('any')
     .withMessage('Invalid phone number'),
-  body('password')
-    .notEmpty()
-    .withMessage('Password is required')
-    .isLength({ min: 6 })
-    .withMessage('Password must be at least 6 characters'),
 ];
 
 export const loginValidation = [
   body('phoneNumber')
     .notEmpty()
-    .withMessage('Phone number is required'),
-  body('password')
-    .notEmpty()
-    .withMessage('Password is required'),
+    .withMessage('Phone number is required')
+    .isMobilePhone('any')
+    .withMessage('Invalid phone number'),
 ];

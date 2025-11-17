@@ -26,24 +26,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Event Listeners
 function setupEventListeners() {
-  // Auth form toggles
-  showRegisterBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    document.getElementById('login-form').classList.remove('active');
-    document.getElementById('register-form').classList.add('active');
-    authError.classList.remove('show');
-  });
-
-  showLoginBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    document.getElementById('register-form').classList.remove('active');
-    document.getElementById('login-form').classList.add('active');
-    authError.classList.remove('show');
-  });
-
-  // Auth forms
+  // Auth form
   loginForm.addEventListener('submit', handleLogin);
-  registerForm.addEventListener('submit', handleRegister);
   logoutBtn.addEventListener('click', handleLogout);
 
   // Quick search
@@ -108,41 +92,28 @@ async function handleLogin(e) {
   e.preventDefault();
 
   const phoneNumber = document.getElementById('login-phone').value;
-  const password = document.getElementById('login-password').value;
 
   try {
-    const data = await apiCall('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ phoneNumber, password }),
-      noAuth: true
-    });
-
-    authToken = data.token;
-    localStorage.setItem('authToken', authToken);
-    showDashboard();
-  } catch (error) {
-    showError(error.message);
-  }
-}
-
-async function handleRegister(e) {
-  e.preventDefault();
-
-  const phoneNumber = document.getElementById('register-phone').value;
-  const password = document.getElementById('register-password').value;
-  const confirmPassword = document.getElementById('register-confirm').value;
-
-  if (password !== confirmPassword) {
-    showError('Passwords do not match');
-    return;
-  }
-
-  try {
-    const data = await apiCall('/api/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ phoneNumber, password }),
-      noAuth: true
-    });
+    // Try to login first
+    let data;
+    try {
+      data = await apiCall('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ phoneNumber }),
+        noAuth: true
+      });
+    } catch (loginError) {
+      // If login fails (user doesn't exist), register them
+      try {
+        data = await apiCall('/api/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({ phoneNumber }),
+          noAuth: true
+        });
+      } catch (registerError) {
+        throw registerError;
+      }
+    }
 
     authToken = data.token;
     localStorage.setItem('authToken', authToken);

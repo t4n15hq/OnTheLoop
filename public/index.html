@@ -43,16 +43,26 @@
     </nav>
 
     <div class="container">
-      <!-- Quick Search -->
-      <div class="card">
-        <h2>Quick Search</h2>
-        <form id="quick-search-form">
-          <div class="search-group">
-            <input type="text" id="quick-search" placeholder="e.g., '157 west' or 'Blue Line downtown'" autocomplete="off">
-            <button type="submit" class="btn btn-primary">Search</button>
+      <!-- Chat Interface -->
+      <div class="card chat-card">
+        <h2>Ask CTA Assistant</h2>
+        <div id="chat-messages" class="chat-messages">
+          <div class="chat-message bot-message">
+            <div class="message-avatar">🚇</div>
+            <div class="message-content">
+              <p>Hi! I'm your CTA assistant. Ask me things like:</p>
+              <ul>
+                <li>"How do I get from Northwestern to downtown?"</li>
+                <li>"When is the next 157 bus?"</li>
+                <li>"Show me Blue Line arrivals"</li>
+              </ul>
+            </div>
           </div>
+        </div>
+        <form id="chat-form" class="chat-input-form">
+          <input type="text" id="chat-input" placeholder="Ask about routes, schedules, directions..." autocomplete="off" required>
+          <button type="submit" class="btn btn-primary">Send</button>
         </form>
-        <div id="search-results"></div>
       </div>
 
       <!-- Favorites -->

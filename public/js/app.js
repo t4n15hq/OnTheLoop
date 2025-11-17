@@ -30,8 +30,8 @@ function setupEventListeners() {
   loginForm.addEventListener('submit', handleLogin);
   logoutBtn.addEventListener('click', handleLogout);
 
-  // Quick search
-  document.getElementById('quick-search-form').addEventListener('submit', handleQuickSearch);
+  // Chat
+  document.getElementById('chat-form').addEventListener('submit', handleChatMessage);
 
   // Add favorite/schedule buttons
   document.getElementById('add-favorite-btn').addEventListener('click', () => openModal('favorite-modal'));
@@ -162,65 +162,116 @@ async function loadDashboardData() {
   }
 }
 
-// Quick Search
-async function handleQuickSearch(e) {
+// Chat Functions
+async function handleChatMessage(e) {
   e.preventDefault();
 
-  const query = document.getElementById('quick-search').value.trim();
-  const resultsDiv = document.getElementById('search-results');
+  const input = document.getElementById('chat-input');
+  const query = input.value.trim();
 
   if (!query) return;
 
-  resultsDiv.innerHTML = '<p style="text-align: center; color: #64748b;">Searching...</p>';
+  // Add user message
+  addChatMessage(query, 'user');
+  input.value = '';
+
+  // Show typing indicator
+  const typingId = addTypingIndicator();
 
   try {
     const data = await apiCall(`/api/cta/transit/ask?query=${encodeURIComponent(query)}`);
 
-    let html = `<div class="search-result">`;
-    html += `<h3>Results for "${query}"</h3>`;
-    html += `<div style="margin-top: 12px; white-space: pre-wrap;">${data.answer}</div>`;
+    // Remove typing indicator
+    removeTypingIndicator(typingId);
 
-    if (data.realTimeArrivals) {
-      html += `<div class="arrivals" style="margin-top: 16px;">`;
+    // Add bot response
+    addChatMessage(data.answer, 'bot', data.realTimeArrivals);
+  } catch (error) {
+    removeTypingIndicator(typingId);
+    addChatMessage(`Sorry, I encountered an error: ${error.message}`, 'bot');
+  }
+}
 
-      // Handle different response formats
-      if (data.realTimeArrivals.routes) {
-        // Multiple routes (transit directions)
-        data.realTimeArrivals.routes.forEach(route => {
-          html += `<div style="margin-bottom: 8px;">`;
-          html += `<strong>${route.type === 'train' ? route.route + ' Line' : 'Route ' + route.route}</strong> at ${route.stopName}<br>`;
-          route.arrivals.forEach(arr => {
-            const time = arr.isApproaching ? 'Arriving NOW' : `${arr.minutesAway} min`;
-            html += `<div class="arrival-time">`;
-            html += `<span>${arr.destination}</span>`;
-            html += `<span class="time">${time}</span>`;
-            html += `</div>`;
-          });
-          html += `</div>`;
+function addChatMessage(text, type, arrivals = null) {
+  const messagesDiv = document.getElementById('chat-messages');
+  const messageDiv = document.createElement('div');
+  messageDiv.className = `chat-message ${type}-message`;
+
+  const avatar = type === 'user' ? '👤' : '🚇';
+
+  let contentHtml = `<div class="message-avatar">${avatar}</div><div class="message-content">`;
+
+  // Format the text with line breaks
+  const formattedText = text.replace(/\n/g, '<br>');
+  contentHtml += `<p>${formattedText}</p>`;
+
+  // Add arrivals if present
+  if (arrivals) {
+    contentHtml += `<div class="arrivals">`;
+
+    if (arrivals.routes) {
+      // Multiple routes (transit directions)
+      arrivals.routes.forEach(route => {
+        const icon = route.type === 'train' ? '🚊' : '🚌';
+        contentHtml += `<div class="arrival-item">`;
+        contentHtml += `<div class="route-name">${icon} ${route.type === 'train' ? route.route + ' Line' : 'Route ' + route.route}</div>`;
+        contentHtml += `<div style="font-size: 0.875rem; margin-bottom: 4px;">${route.stopName}</div>`;
+        contentHtml += `<div class="arrival-times">`;
+        route.arrivals.forEach(arr => {
+          const time = arr.isApproaching ? 'NOW' : `${arr.minutesAway} min`;
+          contentHtml += `<span class="arrival-time-badge">${time}</span>`;
         });
-      } else if (data.realTimeArrivals.stops) {
-        // Single route arrivals
-        data.realTimeArrivals.stops.forEach(stop => {
-          html += `<div style="margin-bottom: 8px;">`;
-          html += `<strong>${stop.stopName}</strong> (${stop.direction})<br>`;
-          stop.arrivals.forEach(arr => {
-            const time = arr.isApproaching ? 'Arriving NOW' : `${arr.minutesAway} min`;
-            html += `<div class="arrival-time">`;
-            html += `<span>${arr.destination}</span>`;
-            html += `<span class="time">${time}${arr.isDelayed ? ' ⚠️' : ''}</span>`;
-            html += `</div>`;
-          });
-          html += `</div>`;
+        contentHtml += `</div></div>`;
+      });
+    } else if (arrivals.stops) {
+      // Single route arrivals
+      arrivals.stops.forEach(stop => {
+        contentHtml += `<div class="arrival-item">`;
+        contentHtml += `<div class="route-name">🚌 ${stop.stopName}</div>`;
+        contentHtml += `<div style="font-size: 0.875rem; margin-bottom: 4px;">${stop.direction}</div>`;
+        contentHtml += `<div class="arrival-times">`;
+        stop.arrivals.forEach(arr => {
+          const time = arr.isApproaching ? 'NOW' : `${arr.minutesAway} min`;
+          const delayed = arr.isDelayed ? ' ⚠️' : '';
+          contentHtml += `<span class="arrival-time-badge">${time}${delayed}</span>`;
         });
-      }
-
-      html += `</div>`;
+        contentHtml += `</div></div>`;
+      });
     }
 
-    html += `</div>`;
-    resultsDiv.innerHTML = html;
-  } catch (error) {
-    resultsDiv.innerHTML = `<div class="search-result"><p style="color: #ef4444;">Error: ${error.message}</p></div>`;
+    contentHtml += `</div>`;
+  }
+
+  contentHtml += `</div>`;
+  messageDiv.innerHTML = contentHtml;
+
+  messagesDiv.appendChild(messageDiv);
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+function addTypingIndicator() {
+  const messagesDiv = document.getElementById('chat-messages');
+  const typingDiv = document.createElement('div');
+  const id = 'typing-' + Date.now();
+  typingDiv.id = id;
+  typingDiv.className = 'chat-message bot-message';
+  typingDiv.innerHTML = `
+    <div class="message-avatar">🚇</div>
+    <div class="message-content typing-indicator">
+      <span></span>
+      <span></span>
+      <span></span>
+    </div>
+  `;
+  messagesDiv.appendChild(typingDiv);
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  return id;
+}
+
+function removeTypingIndicator(id) {
+  const typingDiv = document.getElementById(id);
+  if (typingDiv) {
+    typingDiv.remove();
   }
 }
 

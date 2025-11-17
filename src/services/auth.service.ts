@@ -139,6 +139,7 @@ export class AuthService {
         select: {
           id: true,
           phoneNumber: true,
+          email: true,
           createdAt: true,
         },
       });

@@ -24,11 +24,11 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Routes
+// Routes - Order matters! More specific routes must come before catch-all routes
 app.use('/api/auth', authRoutes);
-app.use('/api', favoriteRoutes);
-app.use('/api/sms', smsRoutes);
+app.use('/api/sms', smsRoutes);   // SMS webhook (no auth required)
 app.use('/api/cta', ctaRoutes);
+app.use('/api', favoriteRoutes);  // Catch-all for /api/* (requires auth)
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

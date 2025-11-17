@@ -1,0 +1,72 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String       @id @default(cuid())
+  phoneNumber  String       @unique
+  password     String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  favorites    Favorite[]
+  schedules    Schedule[]
+
+  @@map("users")
+}
+
+model Favorite {
+  id          String     @id @default(cuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Route information
+  routeType   RouteType  // TRAIN or BUS
+  routeId     String     // e.g., "Blue", "Red" for trains, "157" for buses
+
+  // For trains
+  stationId   String?    // CTA station ID
+  direction   String?    // e.g., "5" for service toward O'Hare
+
+  // For buses
+  stopId      String?    // CTA bus stop ID
+
+  // Display name
+  name        String     // User-friendly name: "Blue Line to UIC-Halsted"
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  schedules   Schedule[]
+
+  @@map("favorites")
+}
+
+model Schedule {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  favoriteId  String
+  favorite    Favorite  @relation(fields: [favoriteId], references: [id], onDelete: Cascade)
+
+  // Scheduling details
+  time        String    // Time in HH:mm format (e.g., "08:45", "09:00")
+  daysOfWeek  Int[]     // Array of days: 0=Sunday, 1=Monday, etc.
+  enabled     Boolean   @default(true)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("schedules")
+}
+
+enum RouteType {
+  TRAIN
+  BUS
+}

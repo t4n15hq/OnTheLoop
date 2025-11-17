@@ -42,8 +42,11 @@ class EmailService {
     }
 
     try {
+      const fromAddress = config.email?.from || config.email?.user;
+      const fromName = config.email?.fromName || 'Loop CTA Tracker';
+
       const info = await this.transporter.sendMail({
-        from: `"Loop CTA Tracker" <${config.email?.user}>`,
+        from: `"${fromName}" <${fromAddress}>`,
         to,
         subject,
         html,

@@ -32,6 +32,8 @@ interface Config {
     pass: string;
     host?: string;
     port?: number;
+    from?: string;
+    fromName?: string;
   };
   cache: {
     ttl: number;
@@ -68,6 +70,8 @@ const config: Config = {
     pass: process.env.EMAIL_PASS,
     host: process.env.EMAIL_HOST,
     port: process.env.EMAIL_PORT ? parseInt(process.env.EMAIL_PORT, 10) : undefined,
+    from: process.env.EMAIL_FROM,
+    fromName: process.env.EMAIL_FROM_NAME,
   } : undefined,
   cache: {
     ttl: parseInt(process.env.CACHE_TTL || '60', 10),

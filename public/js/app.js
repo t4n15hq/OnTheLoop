@@ -60,6 +60,10 @@ function setupEventListeners() {
   // Bus route selection
   document.getElementById('bus-route').addEventListener('change', loadBusDirections);
   document.getElementById('bus-direction').addEventListener('change', loadBusStops);
+
+  // Train line selection
+  document.getElementById('train-line').addEventListener('change', loadTrainStations);
+  document.getElementById('train-station').addEventListener('change', loadTrainDirections);
 }
 
 // API Helper
@@ -534,6 +538,55 @@ async function loadBusStops() {
     });
   } catch (error) {
     console.error('Error loading stops:', error);
+  }
+}
+
+// Train Line Helpers
+async function loadTrainStations() {
+  const line = document.getElementById('train-line').value;
+  const stationSelect = document.getElementById('train-station');
+  const directionSelect = document.getElementById('train-direction');
+
+  // Reset dependent dropdowns
+  stationSelect.innerHTML = '<option value="">Select station...</option>';
+  directionSelect.innerHTML = '<option value="">Select direction...</option>';
+
+  if (!line) return;
+
+  try {
+    const data = await apiCall(`/api/cta/train/${line}/stations`);
+
+    data.stations.forEach(station => {
+      stationSelect.innerHTML += `<option value="${station.map_id}">${station.station_name}</option>`;
+    });
+  } catch (error) {
+    console.error('Error loading stations:', error);
+  }
+}
+
+async function loadTrainDirections() {
+  const line = document.getElementById('train-line').value;
+  const stationId = document.getElementById('train-station').value;
+  const directionSelect = document.getElementById('train-direction');
+
+  directionSelect.innerHTML = '<option value="">Select direction...</option>';
+
+  if (!line || !stationId) return;
+
+  try {
+    const data = await apiCall(`/api/cta/train/${line}/stations`);
+    const station = data.stations.find(s => s.map_id === stationId);
+
+    if (station && station.directions) {
+      // Add unique directions for this station
+      const directions = [...new Set(station.directions)];
+      directions.forEach(dir => {
+        const dirName = dir === '1' ? 'Southbound' : dir === '5' ? 'Northbound' : `Direction ${dir}`;
+        directionSelect.innerHTML += `<option value="${dir}">${dirName}</option>`;
+      });
+    }
+  } catch (error) {
+    console.error('Error loading directions:', error);
   }
 }
 

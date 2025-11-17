@@ -135,6 +135,20 @@ export class CTAController {
   }
 
   /**
+   * Get train stations for a specific line
+   */
+  static async getTrainStations(req: Request, res: Response): Promise<void> {
+    try {
+      const { line } = req.params;
+      const stations = await CTALookupService.getTrainStations(line);
+      res.status(200).json({ line, stations });
+    } catch (error: any) {
+      logger.error('Get train stations error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  /**
    * Resolve a natural language location query to coordinates
    * Example: "coffee shop near Northwestern University"
    */

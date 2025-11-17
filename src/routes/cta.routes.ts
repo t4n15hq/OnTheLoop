@@ -36,6 +36,12 @@ router.get('/bus/:routeId/stops/nearby', CTAController.findNearbyStops);
 router.get('/train/lines', CTAController.getTrainLines);
 
 /**
+ * GET /api/cta/train/:line/stations
+ * Get stations for a specific train line
+ */
+router.get('/train/:line/stations', CTAController.getTrainStations);
+
+/**
  * GET /api/cta/location/resolve
  * Resolve a natural language location to coordinates using Gemini
  * Query params: query (e.g., "Willis Tower" or "coffee shop near Northwestern")

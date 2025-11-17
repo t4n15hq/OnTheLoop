@@ -438,6 +438,15 @@ export class CTAController {
                 );
                 conversationalResponse += `\n    Then: ${following.join(', ')}`;
               }
+            } else {
+              // No arrivals found - likely no service at this time
+              conversationalResponse = `🚌 Route ${routeNumber} - ${route.rtnm}\n\n`;
+              conversationalResponse += `No buses are currently running on this route.\n\n`;
+              conversationalResponse += `This could be because:\n`;
+              conversationalResponse += `• It's outside service hours (buses typically run 5 AM - 1 AM)\n`;
+              conversationalResponse += `• The route doesn't operate on this day\n`;
+              conversationalResponse += `• There's a service disruption\n\n`;
+              conversationalResponse += `Try again during service hours or check transitchicago.com for the route schedule.`;
             }
           }
         } catch (err) {

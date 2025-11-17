@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { CTALookupService } from '../services/cta-lookup.service';
 import { GeminiMapsService } from '../services/gemini-maps.service';
+import { CTAService } from '../services/cta.service';
+import { AISMSService } from '../services/ai-sms.service';
 import logger from '../utils/logger';
 
 export class CTAController {
@@ -203,8 +205,9 @@ export class CTAController {
   }
 
   /**
-   * Get transit suggestions using natural language
+   * Get transit suggestions using natural language with real-time arrivals
    * Example: "How do I get from Northwestern to downtown?"
+   * Example: "When is the next 157 bus?"
    */
   static async getTransitSuggestion(req: Request, res: Response): Promise<void> {
     try {
@@ -215,9 +218,67 @@ export class CTAController {
         return;
       }
 
+      // Get AI suggestion
       const suggestion = await GeminiMapsService.getTransitSuggestion(query);
 
-      res.status(200).json({ query, suggestion });
+      // Parse query to detect if asking about specific route arrivals
+      const parsed = await AISMSService.parseQuery(query);
+
+      let realTimeArrivals = null;
+
+      // If query is about route arrivals, fetch real-time data
+      if (parsed.intent === 'route_arrivals' && parsed.routeNumber) {
+        try {
+          const routeNumber = parsed.routeNumber;
+
+          // Try to get all bus stops for this route to show arrivals
+          const routes = await CTALookupService.getBusRoutes();
+          const route = routes.find(r => r.rt === routeNumber);
+
+          if (route) {
+            // Get first few stops to show sample arrivals
+            const directions = await CTALookupService.getBusDirections(routeNumber);
+            if (directions.length > 0) {
+              const stops = await CTALookupService.getBusStops(routeNumber, directions[0]);
+
+              // Get arrivals for first 3 stops
+              const arrivalPromises = stops.slice(0, 3).map(async (stop) => {
+                try {
+                  const arrivals = await CTAService.getBusPredictions(stop.stpid, routeNumber, 3);
+                  return {
+                    stopName: stop.stpnm,
+                    stopId: stop.stpid,
+                    arrivals: arrivals.map(a => ({
+                      destination: a.destination,
+                      minutesAway: a.minutesAway,
+                      isApproaching: a.isApproaching,
+                      isDelayed: a.isDelayed
+                    }))
+                  };
+                } catch (err) {
+                  return null;
+                }
+              });
+
+              const arrivalResults = await Promise.all(arrivalPromises);
+              realTimeArrivals = {
+                route: routeNumber,
+                routeName: route.rtnm,
+                direction: directions[0],
+                stops: arrivalResults.filter(a => a !== null && a.arrivals.length > 0)
+              };
+            }
+          }
+        } catch (err) {
+          logger.warn('Could not fetch real-time arrivals:', err);
+        }
+      }
+
+      res.status(200).json({
+        query,
+        suggestion,
+        realTimeArrivals
+      });
     } catch (error: any) {
       logger.error('Get transit suggestion error:', error);
       res.status(500).json({ error: error.message });

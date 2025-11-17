@@ -44,11 +44,11 @@ export class SMSController {
         } catch (aiError) {
           logger.error('AI processing failed, falling back to simple logic:', aiError);
           // Fall back to simple logic
-          await this.handleSimpleQuery(from, message, user.id);
+          await SMSController.handleSimpleQuery(from, message, user.id);
         }
       } else {
         // Use simple logic (original behavior)
-        await this.handleSimpleQuery(from, message, user.id);
+        await SMSController.handleSimpleQuery(from, message, user.id);
       }
 
       // Respond to Twilio

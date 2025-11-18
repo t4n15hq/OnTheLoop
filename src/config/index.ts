@@ -19,10 +19,11 @@ interface Config {
     trainApiKey: string;
     busApiKey: string;
   };
-  twilio: {
-    accountSid: string;
-    authToken: string;
-    phoneNumber: string;
+  aws: {
+    region: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    snsPhoneNumber?: string; // Optional: Sender ID for SMS (if supported in region)
   };
   google: {
     geminiApiKey: string;
@@ -57,10 +58,11 @@ const config: Config = {
     trainApiKey: process.env.CTA_TRAIN_API_KEY || '',
     busApiKey: process.env.CTA_BUS_API_KEY || '',
   },
-  twilio: {
-    accountSid: process.env.TWILIO_ACCOUNT_SID || '',
-    authToken: process.env.TWILIO_AUTH_TOKEN || '',
-    phoneNumber: process.env.TWILIO_PHONE_NUMBER || '',
+  aws: {
+    region: process.env.AWS_REGION || 'us-east-1',
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
+    snsPhoneNumber: process.env.AWS_SNS_PHONE_NUMBER,
   },
   google: {
     geminiApiKey: process.env.GOOGLE_GEMINI_API_KEY || '',

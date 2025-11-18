@@ -1,27 +1,46 @@
-import twilio from 'twilio';
+import { SNSClient, PublishCommand, PublishCommandInput } from '@aws-sdk/client-sns';
 import config from '../config';
 import logger from '../utils/logger';
 
 export class SMSService {
-  private static client = twilio(
-    config.twilio.accountSid,
-    config.twilio.authToken
-  );
+  private static client = new SNSClient({
+    region: config.aws.region,
+    credentials: {
+      accessKeyId: config.aws.accessKeyId,
+      secretAccessKey: config.aws.secretAccessKey,
+    },
+  });
 
   /**
-   * Send an SMS message
+   * Send an SMS message using AWS SNS
    * @param to - Recipient phone number (E.164 format)
    * @param message - Message body
    */
   static async sendSMS(to: string, message: string): Promise<void> {
     try {
-      const result = await this.client.messages.create({
-        body: message,
-        from: config.twilio.phoneNumber,
-        to,
-      });
+      const params: PublishCommandInput = {
+        Message: message,
+        PhoneNumber: to,
+        MessageAttributes: {
+          'AWS.SNS.SMS.SMSType': {
+            DataType: 'String',
+            StringValue: 'Transactional', // Use Transactional for better delivery rates
+          },
+        },
+      };
 
-      logger.info(`SMS sent to ${to}: ${result.sid}`);
+      // Add sender ID if configured (only works in supported regions like US)
+      if (config.aws.snsPhoneNumber) {
+        params.MessageAttributes!['AWS.SNS.SMS.OriginationNumber'] = {
+          DataType: 'String',
+          StringValue: config.aws.snsPhoneNumber,
+        };
+      }
+
+      const command = new PublishCommand(params);
+      const result = await this.client.send(command);
+
+      logger.info(`SMS sent to ${to}: ${result.MessageId}`);
     } catch (error) {
       logger.error(`Error sending SMS to ${to}:`, error);
       throw error;
@@ -49,25 +68,6 @@ export class SMSService {
       logger.error('Error sending bulk SMS:', error);
       throw error;
     }
-  }
-
-  /**
-   * Validate incoming Twilio request
-   * @param signature - X-Twilio-Signature header
-   * @param url - The full URL of the webhook
-   * @param params - POST parameters from Twilio
-   */
-  static validateWebhook(
-    signature: string,
-    url: string,
-    params: Record<string, any>
-  ): boolean {
-    return twilio.validateRequest(
-      config.twilio.authToken,
-      signature,
-      url,
-      params
-    );
   }
 
   /**

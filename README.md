@@ -18,7 +18,7 @@ A smart CTA (Chicago Transit Authority) tracking service that sends scheduled SM
 - **Backend**: Node.js, TypeScript, Express
 - **Database**: PostgreSQL with Prisma ORM
 - **Cache & Jobs**: Redis, BullMQ
-- **SMS**: Twilio
+- **SMS**: AWS SNS (Amazon Simple Notification Service)
 - **AI**: Google Gemini (for natural language location resolution)
 - **APIs**: CTA Train Tracker & Bus Tracker APIs
 
@@ -26,7 +26,7 @@ A smart CTA (Chicago Transit Authority) tracking service that sends scheduled SM
 
 - Node.js 18+ and npm
 - Docker and Docker Compose (for PostgreSQL and Redis)
-- Twilio account (for SMS functionality)
+- AWS account with SNS enabled (for SMS functionality)
 - CTA API keys (free from [CTA Developer Portal](https://www.transitchicago.com/developers/))
 - Google Gemini API key (optional, for natural language location search - get it from [Google AI Studio](https://ai.google.dev/))
 
@@ -70,10 +70,12 @@ JWT_EXPIRES_IN=7d
 CTA_TRAIN_API_KEY=your-cta-train-api-key
 CTA_BUS_API_KEY=your-cta-bus-api-key
 
-# Twilio
-TWILIO_ACCOUNT_SID=your-twilio-account-sid
-TWILIO_AUTH_TOKEN=your-twilio-auth-token
-TWILIO_PHONE_NUMBER=+1234567890
+# AWS Configuration (for SNS SMS)
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your-aws-access-key-id
+AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
+# Optional: Origination phone number (requires dedicated number from AWS)
+# AWS_SNS_PHONE_NUMBER=+1234567890
 
 # Google Gemini API (for natural language location search)
 GOOGLE_GEMINI_API_KEY=your-google-gemini-api-key

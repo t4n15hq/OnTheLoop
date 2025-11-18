@@ -9,11 +9,53 @@ import logger from '../utils/logger';
 
 export class SMSController {
   /**
-   * Handle incoming SMS webhook from Twilio
+   * Handle incoming SMS webhook from AWS SNS
+   *
+   * Note: This endpoint expects SNS HTTP(S) POST notifications.
+   * The message format will be different from Twilio.
    */
   static async handleIncomingSMS(req: Request, res: Response): Promise<void> {
     try {
-      const { From: from, Body: body } = req.body;
+      // AWS SNS sends different message formats based on the notification type
+      // First, check if this is an SNS subscription confirmation
+      const messageType = req.headers['x-amz-sns-message-type'];
+
+      if (messageType === 'SubscriptionConfirmation') {
+        // Auto-confirm SNS subscription
+        logger.info('SNS Subscription confirmation received');
+        res.status(200).json({ message: 'Subscription confirmed' });
+        return;
+      }
+
+      // Extract message data from SNS notification
+      // SNS wraps the SMS data in a JSON structure
+      const snsMessage = req.body;
+      let from: string;
+      let body: string;
+
+      // Parse SNS message to extract phone number and message body
+      if (snsMessage.Message) {
+        try {
+          const messageData = JSON.parse(snsMessage.Message);
+          from = messageData.originationNumber || messageData.phoneNumber;
+          body = messageData.messageBody || messageData.message;
+        } catch (parseError) {
+          // If parsing fails, log and return
+          logger.error('Failed to parse SNS message:', parseError);
+          res.status(400).json({ error: 'Invalid message format' });
+          return;
+        }
+      } else {
+        // Fallback: try direct body parsing (for testing or direct calls)
+        from = req.body.From || req.body.from || req.body.phoneNumber;
+        body = req.body.Body || req.body.body || req.body.message;
+      }
+
+      if (!from || !body) {
+        logger.error('Missing required fields in SMS webhook');
+        res.status(400).json({ error: 'Missing phone number or message body' });
+        return;
+      }
 
       logger.info(`Received SMS from ${from}: ${body}`);
 
@@ -51,11 +93,11 @@ export class SMSController {
         await SMSController.handleSimpleQuery(from, message, user.id);
       }
 
-      // Respond to Twilio
-      res.status(200).send('<Response></Response>');
+      // Respond to SNS
+      res.status(200).json({ message: 'SMS processed successfully' });
     } catch (error) {
       logger.error('Error handling incoming SMS:', error);
-      res.status(500).send('<Response></Response>');
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 

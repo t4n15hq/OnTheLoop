@@ -7,11 +7,10 @@ let currentUser = null;
 const authView = document.getElementById('auth-view');
 const dashboardView = document.getElementById('dashboard-view');
 const loginForm = document.getElementById('login');
-const registerForm = document.getElementById('register');
 const authError = document.getElementById('auth-error');
-const showRegisterBtn = document.getElementById('show-register');
-const showLoginBtn = document.getElementById('show-login');
 const logoutBtn = document.getElementById('logout-btn');
+const userMenuBtn = document.getElementById('user-menu-btn');
+const userMenuDropdown = document.getElementById('user-menu-dropdown');
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', () => {
@@ -29,6 +28,17 @@ function setupEventListeners() {
   // Auth form
   loginForm.addEventListener('submit', handleLogin);
   logoutBtn.addEventListener('click', handleLogout);
+
+  // User menu toggle
+  userMenuBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    userMenuDropdown.classList.toggle('show');
+  });
+
+  // Close user menu when clicking outside
+  document.addEventListener('click', () => {
+    userMenuDropdown.classList.remove('show');
+  });
 
   // Chat
   document.getElementById('chat-form').addEventListener('submit', handleChatMessage);
@@ -150,6 +160,7 @@ async function handleLogin(e) {
     }
 
     authToken = data.token;
+    currentUser = data.user;
     localStorage.setItem('authToken', authToken);
     showDashboard();
   } catch (error) {
@@ -161,6 +172,7 @@ function handleLogout() {
   authToken = null;
   currentUser = null;
   localStorage.removeItem('authToken');
+  userMenuDropdown.classList.remove('show');
   showAuth();
 }
 
@@ -179,7 +191,28 @@ async function showDashboard() {
   authView.style.display = 'none';
   dashboardView.style.display = 'block';
 
+  updateWelcomeMessage();
   await loadDashboardData();
+}
+
+// Update welcome message based on time of day
+function updateWelcomeMessage() {
+  const hour = new Date().getHours();
+  let greeting = 'Good evening';
+
+  if (hour < 12) {
+    greeting = 'Good morning';
+  } else if (hour < 18) {
+    greeting = 'Good afternoon';
+  }
+
+  document.getElementById('welcome-greeting').textContent = greeting;
+
+  // Get user phone from token (simplified display)
+  if (currentUser && currentUser.phoneNumber) {
+    const phoneDisplay = currentUser.phoneNumber.slice(-4);
+    document.getElementById('user-phone-display').textContent = `•••• ${phoneDisplay}`;
+  }
 }
 
 async function loadDashboardData() {
@@ -188,12 +221,83 @@ async function loadDashboardData() {
       loadFavorites(),
       loadSchedules()
     ]);
+
+    // After loading, check for next upcoming trip
+    await loadNextUpcomingTrip();
   } catch (error) {
     console.error('Error loading dashboard:', error);
     if (error.message.includes('Unauthorized')) {
       handleLogout();
     }
   }
+}
+
+// Load next upcoming trip
+async function loadNextUpcomingTrip() {
+  try {
+    const data = await apiCall('/api/schedules');
+
+    if (!data.schedules || data.schedules.length === 0) {
+      document.getElementById('next-trip-card').style.display = 'none';
+      return;
+    }
+
+    // Find the next schedule for today
+    const now = new Date();
+    const currentDay = now.getDay();
+    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    const upcomingSchedules = data.schedules
+      .filter(s => s.enabled && s.daysOfWeek.includes(currentDay) && s.time >= currentTime)
+      .sort((a, b) => a.time.localeCompare(b.time));
+
+    if (upcomingSchedules.length > 0) {
+      const nextSchedule = upcomingSchedules[0];
+      displayNextTrip(nextSchedule);
+    } else {
+      document.getElementById('next-trip-card').style.display = 'none';
+    }
+  } catch (error) {
+    console.error('Error loading next trip:', error);
+    document.getElementById('next-trip-card').style.display = 'none';
+  }
+}
+
+function displayNextTrip(schedule) {
+  const card = document.getElementById('next-trip-card');
+  const info = document.getElementById('next-trip-info');
+
+  // Calculate minutes until trip
+  const now = new Date();
+  const [hours, minutes] = schedule.time.split(':').map(Number);
+  const scheduleTime = new Date();
+  scheduleTime.setHours(hours, minutes, 0, 0);
+
+  const minutesUntil = Math.floor((scheduleTime - now) / 60000);
+
+  if (minutesUntil < 0) {
+    card.style.display = 'none';
+    return;
+  }
+
+  info.innerHTML = `
+    <div class="trip-details">
+      <h3>${schedule.favorite.name}</h3>
+      <div class="trip-route">
+        <span>${schedule.favorite.routeType === 'BUS' ? '🚌' : '🚊'}</span>
+        <span>${schedule.favorite.routeId}</span>
+        ${schedule.favorite.boardingStopName && schedule.favorite.alightingStopName
+          ? `<span>• ${schedule.favorite.boardingStopName} → ${schedule.favorite.alightingStopName}</span>`
+          : ''}
+      </div>
+    </div>
+    <div class="trip-countdown">
+      <div class="countdown-time">${minutesUntil}</div>
+      <div class="countdown-label">minutes until</div>
+    </div>
+  `;
+
+  card.style.display = 'block';
 }
 
 // Chat Functions
@@ -313,6 +417,10 @@ function removeTypingIndicator(id) {
   }
 }
 
+function showTypingIndicator() {
+  return addTypingIndicator();
+}
+
 // Favorites
 async function loadFavorites() {
   try {
@@ -320,13 +428,24 @@ async function loadFavorites() {
     const listDiv = document.getElementById('favorites-list');
 
     if (!data.favorites || data.favorites.length === 0) {
-      listDiv.innerHTML = '<p class="empty-state">No favorites yet. Add your frequent routes!</p>';
+      listDiv.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">📍</div>
+          <p>No favorites yet</p>
+          <small>Add your frequent routes to get started!</small>
+        </div>
+      `;
       return;
     }
 
-    let html = '';
+    // Use grid layout
+    let html = '<div class="favorites-grid">';
     data.favorites.forEach(fav => {
       const badge = fav.routeType === 'BUS' ? 'badge-bus' : 'badge-train';
+      const journeyHtml = fav.boardingStopName && fav.alightingStopName
+        ? `<div class="favorite-journey">📍 ${fav.boardingStopName} → ${fav.alightingStopName}</div>`
+        : '';
+
       html += `
         <div class="favorite-item" data-id="${fav.id}">
           <div class="favorite-info">
@@ -334,8 +453,9 @@ async function loadFavorites() {
             <div class="favorite-meta">
               <span class="badge ${badge}">${fav.routeType}</span>
               <span>${fav.routeId}</span>
-              ${fav.direction ? `<span>${fav.direction}</span>` : ''}
+              ${fav.direction ? `<span>• Dir ${fav.direction}</span>` : ''}
             </div>
+            ${journeyHtml}
           </div>
           <div class="favorite-actions">
             <button class="btn btn-secondary btn-check-favorite" data-id="${fav.id}">Check</button>
@@ -344,6 +464,7 @@ async function loadFavorites() {
         </div>
       `;
     });
+    html += '</div>';
 
     listDiv.innerHTML = html;
 
@@ -431,6 +552,7 @@ async function checkFavorite(id) {
     const userMsg = document.createElement('div');
     userMsg.className = 'chat-message user-message';
     userMsg.innerHTML = `
+      <div class="message-avatar">👤</div>
       <div class="message-content">
         <p>Check arrivals for ${fav.name}</p>
       </div>
@@ -493,8 +615,6 @@ async function deleteFavorite(id) {
   }
 }
 
-// Functions no longer need to be global - using event delegation instead
-
 // Schedules
 async function loadSchedules() {
   try {
@@ -502,7 +622,13 @@ async function loadSchedules() {
     const listDiv = document.getElementById('schedules-list');
 
     if (!data.schedules || data.schedules.length === 0) {
-      listDiv.innerHTML = '<p class="empty-state">No scheduled alerts. Set up notifications for your routine!</p>';
+      listDiv.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">⏰</div>
+          <p>No scheduled alerts</p>
+          <small>Set up notifications for your daily routine!</small>
+        </div>
+      `;
       return;
     }
 
@@ -562,6 +688,7 @@ async function handleCreateSchedule(e) {
     closeModal('schedule-modal');
     document.getElementById('schedule-form').reset();
     await loadSchedules();
+    await loadNextUpcomingTrip(); // Refresh next trip card
   } catch (error) {
     alert('Error creating schedule: ' + error.message);
   }
@@ -579,6 +706,7 @@ async function toggleSchedule(id, enabled) {
         enabled
       })
     });
+    await loadNextUpcomingTrip(); // Refresh next trip card
   } catch (error) {
     alert('Error updating schedule: ' + error.message);
     await loadSchedules();
@@ -598,14 +726,13 @@ async function deleteSchedule(id) {
     await apiCall(`/api/schedules/${id}`, { method: 'DELETE' });
     console.log('Schedule delete successful, reloading schedules');
     await loadSchedules();
+    await loadNextUpcomingTrip(); // Refresh next trip card
     console.log('Schedules reloaded');
   } catch (error) {
     console.error('Error deleting schedule:', error);
     alert('Error deleting schedule: ' + error.message);
   }
 }
-
-// deleteSchedule no longer needs to be global - using event delegation
 
 // Bus Route Helpers
 async function loadBusDirections() {

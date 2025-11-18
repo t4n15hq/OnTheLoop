@@ -23,15 +23,15 @@
 
         <!-- Login/Register Form -->
         <div id="login-form" class="form-container active">
-          <h2>Enter Your Number</h2>
-          <p class="form-description">We'll text you updates about your routes</p>
+          <h2>Get Started</h2>
+          <p class="form-description">Enter your phone number to continue</p>
           <form id="login">
             <div class="input-group">
               <label for="login-phone">Phone Number</label>
-              <input type="tel" id="login-phone" placeholder="+13125551234" required>
+              <input type="tel" id="login-phone" placeholder="+1 (312) 555-0123" required>
               <small>Include country code (e.g., +1 for US)</small>
             </div>
-            <button type="submit" class="btn btn-primary">Continue</button>
+            <button type="submit" class="btn btn-primary">Continue →</button>
           </form>
         </div>
 
@@ -48,11 +48,38 @@
           <div class="logo-icon-small">⟲</div>
           <h1>Loop</h1>
         </div>
-        <button id="logout-btn" class="btn btn-text">Logout</button>
+
+        <!-- User Menu -->
+        <div class="user-menu">
+          <button class="user-menu-btn" id="user-menu-btn">
+            <div class="user-avatar" id="user-avatar">👤</div>
+            <span id="user-phone-display"></span>
+          </button>
+          <div class="user-menu-dropdown" id="user-menu-dropdown">
+            <div class="user-menu-item" id="logout-btn">
+              <span>🚪</span>
+              <span>Logout</span>
+            </div>
+          </div>
+        </div>
       </div>
     </nav>
 
     <div class="container">
+      <!-- Welcome Section -->
+      <div class="welcome-section">
+        <h1 id="welcome-greeting">Good morning</h1>
+        <p id="welcome-subtitle">Here's your CTA dashboard</p>
+      </div>
+
+      <!-- Next Upcoming Trip -->
+      <div class="next-trip-card" id="next-trip-card" style="display: none;">
+        <h2>Next Scheduled Trip</h2>
+        <div class="next-trip-info" id="next-trip-info">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+
       <!-- Chat Interface -->
       <div class="card chat-card">
         <h2>Ask CTA Assistant</h2>
@@ -71,7 +98,7 @@
         </div>
         <form id="chat-form" class="chat-input-form">
           <input type="text" id="chat-input" placeholder="Ask about routes, schedules, directions..." autocomplete="off" required>
-          <button type="submit" class="btn btn-primary">Send</button>
+          <button type="submit" class="btn btn-primary">Send →</button>
         </form>
       </div>
 
@@ -82,7 +109,11 @@
           <button id="add-favorite-btn" class="btn btn-secondary">+ Add Favorite</button>
         </div>
         <div id="favorites-list">
-          <p class="empty-state">No favorites yet. Add your frequent routes!</p>
+          <div class="empty-state">
+            <div class="empty-state-icon">📍</div>
+            <p>No favorites yet</p>
+            <small>Add your frequent routes to get started!</small>
+          </div>
         </div>
       </div>
 
@@ -93,7 +124,11 @@
           <button id="add-schedule-btn" class="btn btn-secondary">+ Add Schedule</button>
         </div>
         <div id="schedules-list">
-          <p class="empty-state">No scheduled alerts. Set up notifications for your routine!</p>
+          <div class="empty-state">
+            <div class="empty-state-icon">⏰</div>
+            <p>No scheduled alerts</p>
+            <small>Set up notifications for your daily routine!</small>
+          </div>
         </div>
       </div>
     </div>
@@ -107,17 +142,14 @@
         <button class="modal-close">&times;</button>
       </div>
       <form id="favorite-form">
+        <!-- Segmented Control for Route Type -->
         <div class="input-group">
           <label>Route Type</label>
-          <div class="radio-group">
-            <label>
-              <input type="radio" name="route-type" value="BUS" checked>
-              Bus
-            </label>
-            <label>
-              <input type="radio" name="route-type" value="TRAIN">
-              Train
-            </label>
+          <div class="segmented-control">
+            <input type="radio" name="route-type" id="route-type-bus" value="BUS" checked>
+            <label for="route-type-bus">🚌 Bus</label>
+            <input type="radio" name="route-type" id="route-type-train" value="TRAIN">
+            <label for="route-type-train">🚊 Train</label>
           </div>
         </div>
 
@@ -186,7 +218,7 @@
 
         <div class="input-group">
           <label for="favorite-name">Display Name</label>
-          <input type="text" id="favorite-name" placeholder="e.g., Morning Commute Bus" required>
+          <input type="text" id="favorite-name" placeholder="e.g., Morning Commute" required>
         </div>
 
         <div class="modal-footer">
@@ -217,16 +249,38 @@
           <input type="time" id="schedule-time" required>
         </div>
 
+        <!-- Day Chips -->
         <div class="input-group">
           <label>Days of Week</label>
-          <div class="checkbox-group">
-            <label><input type="checkbox" name="day" value="0"> Sun</label>
-            <label><input type="checkbox" name="day" value="1"> Mon</label>
-            <label><input type="checkbox" name="day" value="2"> Tue</label>
-            <label><input type="checkbox" name="day" value="3"> Wed</label>
-            <label><input type="checkbox" name="day" value="4"> Thu</label>
-            <label><input type="checkbox" name="day" value="5"> Fri</label>
-            <label><input type="checkbox" name="day" value="6"> Sat</label>
+          <div class="day-chips">
+            <div class="day-chip">
+              <input type="checkbox" name="day" id="day-0" value="0">
+              <label for="day-0">S</label>
+            </div>
+            <div class="day-chip">
+              <input type="checkbox" name="day" id="day-1" value="1">
+              <label for="day-1">M</label>
+            </div>
+            <div class="day-chip">
+              <input type="checkbox" name="day" id="day-2" value="2">
+              <label for="day-2">T</label>
+            </div>
+            <div class="day-chip">
+              <input type="checkbox" name="day" id="day-3" value="3">
+              <label for="day-3">W</label>
+            </div>
+            <div class="day-chip">
+              <input type="checkbox" name="day" id="day-4" value="4">
+              <label for="day-4">T</label>
+            </div>
+            <div class="day-chip">
+              <input type="checkbox" name="day" id="day-5" value="5">
+              <label for="day-5">F</label>
+            </div>
+            <div class="day-chip">
+              <input type="checkbox" name="day" id="day-6" value="6">
+              <label for="day-6">S</label>
+            </div>
           </div>
         </div>
 

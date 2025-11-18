@@ -392,28 +392,73 @@ async function handleCreateFavorite(e) {
 }
 
 async function checkFavorite(id) {
-  // This would trigger a real-time check of the favorite
-  const resultsDiv = document.getElementById('search-results');
-  resultsDiv.scrollIntoView({ behavior: 'smooth' });
-
   try {
-    const fav = await apiCall(`/api/favorites/${id}`);
-    const query = `Next arrivals for ${fav.favorite.name}`;
+    const data = await apiCall(`/api/favorites/${id}`);
+    const fav = data.favorite;
 
-    document.getElementById('quick-search').value = `${fav.favorite.routeId} ${fav.favorite.direction || ''}`;
-    document.getElementById('quick-search-form').dispatchEvent(new Event('submit'));
+    // Add message to chat showing we're checking
+    const chatMessages = document.getElementById('chat-messages');
+    const userMsg = document.createElement('div');
+    userMsg.className = 'chat-message user-message';
+    userMsg.innerHTML = `
+      <div class="message-content">
+        <p>Check arrivals for ${fav.name}</p>
+      </div>
+    `;
+    chatMessages.appendChild(userMsg);
+
+    // Show typing indicator
+    const typingId = showTypingIndicator();
+
+    // Query for arrivals
+    let query;
+    if (fav.routeType === 'BUS') {
+      query = `Next ${fav.routeId} bus at stop ${fav.stopId}`;
+    } else {
+      query = `Next ${fav.routeId} Line train at station ${fav.stationId}`;
+    }
+
+    const response = await apiCall('/api/cta/query', {
+      method: 'POST',
+      body: JSON.stringify({ query })
+    });
+
+    removeTypingIndicator(typingId);
+
+    // Show results in chat
+    const botMsg = document.createElement('div');
+    botMsg.className = 'chat-message bot-message';
+    botMsg.innerHTML = `
+      <div class="message-avatar">🚇</div>
+      <div class="message-content">
+        <p><strong>${fav.name}</strong></p>
+        <p>${response.message}</p>
+      </div>
+    `;
+    chatMessages.appendChild(botMsg);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
   } catch (error) {
+    console.error('Error checking favorite:', error);
     alert('Error checking favorite: ' + error.message);
   }
 }
 
 async function deleteFavorite(id) {
-  if (!confirm('Are you sure you want to delete this favorite?')) return;
+  console.log('deleteFavorite called with id:', id);
+
+  if (!confirm('Are you sure you want to delete this favorite?')) {
+    console.log('User cancelled delete');
+    return;
+  }
 
   try {
-    await apiCall(`/api/favorites/${id}`, { method: 'DELETE' });
+    console.log('Sending DELETE request for favorite:', id);
+    const result = await apiCall(`/api/favorites/${id}`, { method: 'DELETE' });
+    console.log('Delete successful, reloading favorites');
     await loadFavorites();
+    console.log('Favorites reloaded');
   } catch (error) {
+    console.error('Error deleting favorite:', error);
     alert('Error deleting favorite: ' + error.message);
   }
 }
@@ -514,12 +559,21 @@ async function toggleSchedule(id, enabled) {
 }
 
 async function deleteSchedule(id) {
-  if (!confirm('Are you sure you want to delete this schedule?')) return;
+  console.log('deleteSchedule called with id:', id);
+
+  if (!confirm('Are you sure you want to delete this schedule?')) {
+    console.log('User cancelled schedule delete');
+    return;
+  }
 
   try {
+    console.log('Sending DELETE request for schedule:', id);
     await apiCall(`/api/schedules/${id}`, { method: 'DELETE' });
+    console.log('Schedule delete successful, reloading schedules');
     await loadSchedules();
+    console.log('Schedules reloaded');
   } catch (error) {
+    console.error('Error deleting schedule:', error);
     alert('Error deleting schedule: ' + error.message);
   }
 }

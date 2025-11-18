@@ -125,7 +125,10 @@ function showAuth() {
 async function showDashboard() {
   authView.style.display = 'none';
   dashboardView.style.display = 'block';
-  await loadCurrentUser();
+  // If we don't have currentUser yet (e.g., page reload with saved token), fetch it
+  if (!currentUser && authToken) {
+    await loadCurrentUser();
+  }
   updateWelcomeMessage();
   await loadDashboardData();
 }
@@ -133,6 +136,8 @@ async function showDashboard() {
 async function loadCurrentUser() {
     if (!authToken) return;
     try {
+        // Note: We need to create /api/users/me endpoint in the backend
+        // For now, if this fails, we'll handle it gracefully
         const data = await apiCall('/api/users/me');
         currentUser = data.user;
     } catch(error) {

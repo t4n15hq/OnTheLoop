@@ -19,46 +19,21 @@ document.addEventListener('DOMContentLoaded', () => {
   } else {
     showAuth();
   }
-
   setupEventListeners();
 });
 
 // Event Listeners
 function setupEventListeners() {
-  // Auth form
   loginForm.addEventListener('submit', handleLogin);
   logoutBtn.addEventListener('click', handleLogout);
-
-  // User menu toggle
-  userMenuBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    userMenuDropdown.classList.toggle('show');
-  });
-
-  // Close user menu when clicking outside
-  document.addEventListener('click', () => {
-    userMenuDropdown.classList.remove('show');
-  });
-
-  // Chat
+  userMenuBtn.addEventListener('click', (e) => { e.stopPropagation(); userMenuDropdown.classList.toggle('show'); });
+  document.addEventListener('click', () => { userMenuDropdown.classList.remove('show'); });
   document.getElementById('chat-form').addEventListener('submit', handleChatMessage);
-
-  // Add favorite/schedule buttons
   document.getElementById('add-favorite-btn').addEventListener('click', () => openModal('favorite-modal'));
   document.getElementById('add-schedule-btn').addEventListener('click', () => openModal('schedule-modal'));
-
-  // Modal close buttons
-  document.querySelectorAll('.modal-close').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      closeModal(e.target.closest('.modal').id);
-    });
-  });
-
-  // Modal forms
+  document.querySelectorAll('.modal-close').forEach(btn => { btn.addEventListener('click', (e) => closeModal(e.target.closest('.modal').id)); });
   document.getElementById('favorite-form').addEventListener('submit', handleCreateFavorite);
   document.getElementById('schedule-form').addEventListener('submit', handleCreateSchedule);
-
-  // Route type toggle in favorite form
   document.querySelectorAll('input[name="route-type"]').forEach(radio => {
     radio.addEventListener('change', (e) => {
       const isBus = e.target.value === 'BUS';
@@ -66,105 +41,70 @@ function setupEventListeners() {
       document.getElementById('train-fields').style.display = isBus ? 'none' : 'block';
     });
   });
-
-  // Bus route selection
   document.getElementById('bus-route').addEventListener('change', loadBusDirections);
   document.getElementById('bus-direction').addEventListener('change', loadBusStops);
-
-  // Train line selection
   document.getElementById('train-line').addEventListener('change', loadTrainStations);
-  document.getElementById('train-station').addEventListener('change', loadTrainDirections);
 
-  // Event delegation for favorites buttons
   document.getElementById('favorites-list').addEventListener('click', (e) => {
-    const target = e.target;
-    if (target.classList.contains('btn-check-favorite')) {
-      const id = target.getAttribute('data-id');
-      checkFavorite(id);
-    } else if (target.classList.contains('btn-delete-favorite')) {
-      const id = target.getAttribute('data-id');
-      deleteFavorite(id);
-    }
+    const checkBtn = e.target.closest('.btn-check-favorite');
+    const deleteBtn = e.target.closest('.btn-delete-favorite');
+    if (checkBtn) checkFavorite(checkBtn.dataset.id);
+    if (deleteBtn) deleteFavorite(deleteBtn.dataset.id);
   });
 
-  // Event delegation for schedules buttons and toggles
   document.getElementById('schedules-list').addEventListener('click', (e) => {
-    const target = e.target;
-    if (target.classList.contains('btn-delete-schedule')) {
-      const id = target.getAttribute('data-id');
-      deleteSchedule(id);
-    }
+    const deleteBtn = e.target.closest('.btn-delete-schedule');
+    if (deleteBtn) deleteSchedule(deleteBtn.dataset.id);
   });
 
   document.getElementById('schedules-list').addEventListener('change', (e) => {
-    const target = e.target;
-    if (target.classList.contains('toggle-schedule')) {
-      const id = target.getAttribute('data-id');
-      const enabled = target.checked;
-      toggleSchedule(id, enabled);
-    }
+    const toggle = e.target.closest('.toggle-schedule');
+    if (toggle) toggleSchedule(toggle.dataset.id, toggle.checked);
   });
 }
 
 // API Helper
 async function apiCall(endpoint, options = {}) {
-  const headers = {
-    'Content-Type': 'application/json',
-    ...options.headers
-  };
+  const headers = { 'Content-Type': 'application/json', ...options.headers };
+  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
 
-  if (authToken && !options.noAuth) {
-    headers['Authorization'] = `Bearer ${authToken}`;
-  }
-
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers
-  });
-
-  const data = await response.json();
+  const response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
 
   if (!response.ok) {
+    if (response.status === 401) {
+        console.error("Unauthorized request, logging out.");
+        handleLogout();
+    }
+    const data = await response.json().catch(() => ({ error: `HTTP Error: ${response.statusText}` }));
     throw new Error(data.error || 'Something went wrong');
   }
 
-  return data;
+  // Handle cases where the response might be empty (e.g., DELETE 204 No Content)
+  const contentType = response.headers.get("content-type");
+  if (contentType && contentType.indexOf("application/json") !== -1) {
+    return response.json();
+  } else {
+    return; // Return undefined for non-JSON responses
+  }
 }
 
 // Auth Functions
 async function handleLogin(e) {
   e.preventDefault();
-
   const phoneNumber = document.getElementById('login-phone').value;
-
+  authError.style.display = 'none'; // Hide error on new attempt
   try {
-    // Try to login first
-    let data;
-    try {
-      data = await apiCall('/api/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ phoneNumber }),
-        noAuth: true
-      });
-    } catch (loginError) {
-      // If login fails (user doesn't exist), register them
-      try {
-        data = await apiCall('/api/auth/register', {
-          method: 'POST',
-          body: JSON.stringify({ phoneNumber }),
-          noAuth: true
-        });
-      } catch (registerError) {
-        throw registerError;
-      }
-    }
+    // Try to login, if it fails (user not found), then register
+    const data = await apiCall('/api/auth/login', { method: 'POST', body: JSON.stringify({ phoneNumber }) })
+      .catch(() => apiCall('/api/auth/register', { method: 'POST', body: JSON.stringify({ phoneNumber }) }));
 
     authToken = data.token;
     currentUser = data.user;
     localStorage.setItem('authToken', authToken);
-    showDashboard();
+    await showDashboard();
   } catch (error) {
-    showError(error.message);
+    authError.textContent = error.message;
+    authError.style.display = 'block';
   }
 }
 
@@ -176,39 +116,35 @@ function handleLogout() {
   showAuth();
 }
 
-function showError(message) {
-  authError.textContent = message;
-  authError.classList.add('show');
-}
-
 // View Management
 function showAuth() {
-  authView.style.display = 'block';
+  authView.style.display = 'flex';
   dashboardView.style.display = 'none';
 }
 
 async function showDashboard() {
   authView.style.display = 'none';
   dashboardView.style.display = 'block';
-
+  await loadCurrentUser();
   updateWelcomeMessage();
   await loadDashboardData();
 }
 
-// Update welcome message based on time of day
+async function loadCurrentUser() {
+    if (!authToken) return;
+    try {
+        const data = await apiCall('/api/users/me');
+        currentUser = data.user;
+    } catch(error) {
+        console.error("Could not fetch user, token might be invalid.", error);
+        handleLogout(); // If we can't get the user, the token is bad.
+    }
+}
+
 function updateWelcomeMessage() {
   const hour = new Date().getHours();
-  let greeting = 'Good evening';
-
-  if (hour < 12) {
-    greeting = 'Good morning';
-  } else if (hour < 18) {
-    greeting = 'Good afternoon';
-  }
-
+  let greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   document.getElementById('welcome-greeting').textContent = greeting;
-
-  // Get user phone from token (simplified display)
   if (currentUser && currentUser.phoneNumber) {
     const phoneDisplay = currentUser.phoneNumber.slice(-4);
     document.getElementById('user-phone-display').textContent = `•••• ${phoneDisplay}`;
@@ -216,176 +152,38 @@ function updateWelcomeMessage() {
 }
 
 async function loadDashboardData() {
-  try {
-    await Promise.all([
-      loadFavorites(),
-      loadSchedules()
-    ]);
-
-    // After loading, check for next upcoming trip
-    await loadNextUpcomingTrip();
-  } catch (error) {
-    console.error('Error loading dashboard:', error);
-    if (error.message.includes('Unauthorized')) {
-      handleLogout();
-    }
-  }
-}
-
-// Load next upcoming trip
-async function loadNextUpcomingTrip() {
-  try {
-    const data = await apiCall('/api/schedules');
-
-    if (!data.schedules || data.schedules.length === 0) {
-      document.getElementById('next-trip-card').style.display = 'none';
-      return;
-    }
-
-    // Find the next schedule for today
-    const now = new Date();
-    const currentDay = now.getDay();
-    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-
-    const upcomingSchedules = data.schedules
-      .filter(s => s.enabled && s.daysOfWeek.includes(currentDay) && s.time >= currentTime)
-      .sort((a, b) => a.time.localeCompare(b.time));
-
-    if (upcomingSchedules.length > 0) {
-      const nextSchedule = upcomingSchedules[0];
-      displayNextTrip(nextSchedule);
-    } else {
-      document.getElementById('next-trip-card').style.display = 'none';
-    }
-  } catch (error) {
-    console.error('Error loading next trip:', error);
-    document.getElementById('next-trip-card').style.display = 'none';
-  }
-}
-
-function displayNextTrip(schedule) {
-  const card = document.getElementById('next-trip-card');
-  const info = document.getElementById('next-trip-info');
-
-  // Calculate minutes until trip
-  const now = new Date();
-  const [hours, minutes] = schedule.time.split(':').map(Number);
-  const scheduleTime = new Date();
-  scheduleTime.setHours(hours, minutes, 0, 0);
-
-  const minutesUntil = Math.floor((scheduleTime - now) / 60000);
-
-  if (minutesUntil < 0) {
-    card.style.display = 'none';
-    return;
-  }
-
-  info.innerHTML = `
-    <div class="trip-details">
-      <h3>${schedule.favorite.name}</h3>
-      <div class="trip-route">
-        <span>${schedule.favorite.routeType === 'BUS' ? '🚌' : '🚊'}</span>
-        <span>${schedule.favorite.routeId}</span>
-        ${schedule.favorite.boardingStopName && schedule.favorite.alightingStopName
-          ? `<span>• ${schedule.favorite.boardingStopName} → ${schedule.favorite.alightingStopName}</span>`
-          : ''}
-      </div>
-    </div>
-    <div class="trip-countdown">
-      <div class="countdown-time">${minutesUntil}</div>
-      <div class="countdown-label">minutes until</div>
-    </div>
-  `;
-
-  card.style.display = 'block';
+  await Promise.all([loadFavorites(), loadSchedules()]).catch(console.error);
 }
 
 // Chat Functions
 async function handleChatMessage(e) {
   e.preventDefault();
-
   const input = document.getElementById('chat-input');
   const query = input.value.trim();
-
   if (!query) return;
 
-  // Add user message
   addChatMessage(query, 'user');
   input.value = '';
-
-  // Show typing indicator
   const typingId = addTypingIndicator();
 
   try {
     const data = await apiCall(`/api/cta/transit/ask?query=${encodeURIComponent(query)}`);
-
-    // Remove typing indicator
-    removeTypingIndicator(typingId);
-
-    // Add bot response
     addChatMessage(data.answer, 'bot', data.realTimeArrivals);
   } catch (error) {
-    removeTypingIndicator(typingId);
     addChatMessage(`Sorry, I encountered an error: ${error.message}`, 'bot');
+  } finally {
+    removeTypingIndicator(typingId);
   }
 }
 
-function addChatMessage(text, type, arrivals = null) {
+function addChatMessage(text, type) {
   const messagesDiv = document.getElementById('chat-messages');
   const messageDiv = document.createElement('div');
   messageDiv.className = `chat-message ${type}-message`;
-
   const avatar = type === 'user' ? '👤' : '🚇';
+  let formattedText = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
 
-  let contentHtml = `<div class="message-avatar">${avatar}</div><div class="message-content">`;
-
-  // Format the text - convert markdown to HTML and clean up
-  let formattedText = text
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>') // Bold **text**
-    .replace(/\*(.*?)\*/g, '<em>$1</em>') // Italic *text*
-    .replace(/\n/g, '<br>'); // Line breaks
-
-  contentHtml += `<p>${formattedText}</p>`;
-
-  // Add arrivals if present
-  if (arrivals) {
-    contentHtml += `<div class="arrivals">`;
-
-    if (arrivals.routes) {
-      // Multiple routes (transit directions)
-      arrivals.routes.forEach(route => {
-        const icon = route.type === 'train' ? '🚊' : '🚌';
-        contentHtml += `<div class="arrival-item">`;
-        contentHtml += `<div class="route-name">${icon} ${route.type === 'train' ? route.route + ' Line' : 'Route ' + route.route}</div>`;
-        contentHtml += `<div style="font-size: 0.875rem; margin-bottom: 4px;">${route.stopName}</div>`;
-        contentHtml += `<div class="arrival-times">`;
-        route.arrivals.forEach(arr => {
-          const time = arr.isApproaching ? 'NOW' : `${arr.minutesAway} min`;
-          contentHtml += `<span class="arrival-time-badge">${time}</span>`;
-        });
-        contentHtml += `</div></div>`;
-      });
-    } else if (arrivals.stops) {
-      // Single route arrivals
-      arrivals.stops.forEach(stop => {
-        contentHtml += `<div class="arrival-item">`;
-        contentHtml += `<div class="route-name">🚌 ${stop.stopName}</div>`;
-        contentHtml += `<div style="font-size: 0.875rem; margin-bottom: 4px;">${stop.direction}</div>`;
-        contentHtml += `<div class="arrival-times">`;
-        stop.arrivals.forEach(arr => {
-          const time = arr.isApproaching ? 'NOW' : `${arr.minutesAway} min`;
-          const delayed = arr.isDelayed ? ' ⚠️' : '';
-          contentHtml += `<span class="arrival-time-badge">${time}${delayed}</span>`;
-        });
-        contentHtml += `</div></div>`;
-      });
-    }
-
-    contentHtml += `</div>`;
-  }
-
-  contentHtml += `</div>`;
-  messageDiv.innerHTML = contentHtml;
+  messageDiv.innerHTML = `<div class="message-avatar">${avatar}</div><div class="message-content"><p>${formattedText}</p></div>`;
 
   messagesDiv.appendChild(messageDiv);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
@@ -400,9 +198,7 @@ function addTypingIndicator() {
   typingDiv.innerHTML = `
     <div class="message-avatar">🚇</div>
     <div class="message-content typing-indicator">
-      <span></span>
-      <span></span>
-      <span></span>
+      <span></span><span></span><span></span>
     </div>
   `;
   messagesDiv.appendChild(typingDiv);
@@ -412,13 +208,7 @@ function addTypingIndicator() {
 
 function removeTypingIndicator(id) {
   const typingDiv = document.getElementById(id);
-  if (typingDiv) {
-    typingDiv.remove();
-  }
-}
-
-function showTypingIndicator() {
-  return addTypingIndicator();
+  if (typingDiv) typingDiv.remove();
 }
 
 // Favorites
@@ -426,116 +216,60 @@ async function loadFavorites() {
   try {
     const data = await apiCall('/api/favorites');
     const listDiv = document.getElementById('favorites-list');
-
     if (!data.favorites || data.favorites.length === 0) {
-      listDiv.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-icon">📍</div>
-          <p>No favorites yet</p>
-          <small>Add your frequent routes to get started!</small>
-        </div>
-      `;
+      listDiv.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📍</div><p>No favorites yet</p><small>Add your frequent routes to get started!</small></div>`;
+      updateScheduleFavoriteDropdown([]); // Clear dropdown
       return;
     }
-
-    // Use grid layout
     let html = '<div class="favorites-grid">';
     data.favorites.forEach(fav => {
-      const badge = fav.routeType === 'BUS' ? 'badge-bus' : 'badge-train';
-      const journeyHtml = fav.boardingStopName && fav.alightingStopName
-        ? `<div class="favorite-journey">📍 ${fav.boardingStopName} → ${fav.alightingStopName}</div>`
-        : '';
-
+      const journeyHtml = fav.boardingStopName && fav.alightingStopName ? `<div class="favorite-journey">📍 ${fav.boardingStopName} → ${fav.alightingStopName}</div>` : '';
       html += `
-        <div class="favorite-item" data-id="${fav.id}">
+        <div class="favorite-item">
           <div class="favorite-info">
             <h3>${fav.name}</h3>
             <div class="favorite-meta">
-              <span class="badge ${badge}">${fav.routeType}</span>
+              <span class="badge ${fav.routeType === 'BUS' ? 'badge-bus' : 'badge-train'}">${fav.routeType}</span>
               <span>${fav.routeId}</span>
-              ${fav.direction ? `<span>• Dir ${fav.direction}</span>` : ''}
             </div>
             ${journeyHtml}
           </div>
           <div class="favorite-actions">
             <button class="btn btn-secondary btn-check-favorite" data-id="${fav.id}">Check</button>
-            <button class="btn btn-danger btn-delete-favorite" data-id="${fav.id}">Delete</button>
+            <button class="btn btn-danger btn-sm btn-delete-favorite" data-id="${fav.id}">Delete</button>
           </div>
-        </div>
-      `;
+        </div>`;
     });
     html += '</div>';
-
     listDiv.innerHTML = html;
-
-    // Update schedule dropdown
     updateScheduleFavoriteDropdown(data.favorites);
-  } catch (error) {
-    console.error('Error loading favorites:', error);
+  } catch(error) {
+    console.error("Error loading favorites:", error);
+    document.getElementById('favorites-list').innerHTML = `<div class="empty-state"><p>Could not load favorites.</p></div>`;
   }
 }
 
 async function handleCreateFavorite(e) {
   e.preventDefault();
-
-  const routeType = document.querySelector('input[name="route-type"]:checked').value;
-  const name = document.getElementById('favorite-name').value;
-  const boardingStopName = document.getElementById('boarding-stop-name').value;
-  const alightingStopName = document.getElementById('alighting-stop-name').value;
-
-  // Validate journey endpoints
-  if (!boardingStopName || !alightingStopName) {
-    alert('Please enter both boarding and alighting stops');
-    return;
-  }
-
-  let payload = {
-    name,
+  const form = e.target;
+  const routeType = form.elements['route-type'].value;
+  const payload = {
+    name: form.elements['favorite-name'].value,
     routeType,
-    boardingStopName,
-    alightingStopName
+    boardingStopName: form.elements['boarding-stop-name'].value,
+    alightingStopName: form.elements['alighting-stop-name'].value,
+    routeId: routeType === 'BUS' ? form.elements['bus-route'].value : form.elements['train-line'].value,
+    direction: routeType === 'BUS' ? form.elements['bus-direction'].value : form.elements['train-direction'].value,
+    stopId: routeType === 'BUS' ? form.elements['bus-stop'].value : null,
+    stationId: routeType === 'TRAIN' ? form.elements['train-station'].value : null,
   };
 
-  if (routeType === 'BUS') {
-    const routeId = document.getElementById('bus-route').value;
-    const direction = document.getElementById('bus-direction').value;
-    const stopId = document.getElementById('bus-stop').value;
-
-    if (!routeId || !direction || !stopId) {
-      alert('Please fill in all bus fields');
-      return;
-    }
-
-    payload.routeId = routeId;
-    payload.direction = direction;
-    payload.stopId = stopId;
-    payload.boardingStopId = stopId; // Use the selected stop as boarding stop
-    payload.alightingStopId = stopId; // Use same ID for alighting (tracks boarding arrivals)
-  } else {
-    const routeId = document.getElementById('train-line').value;
-    const stationId = document.getElementById('train-station').value;
-    const direction = document.getElementById('train-direction').value;
-
-    if (!routeId || !stationId) {
-      alert('Please fill in all train fields');
-      return;
-    }
-
-    payload.routeId = routeId;
-    payload.stationId = stationId;
-    payload.direction = direction;
-    payload.boardingStopId = stationId; // Use the selected station as boarding station
-    payload.alightingStopId = stationId; // Use same ID for alighting (tracks boarding arrivals)
-  }
-
   try {
-    await apiCall('/api/favorites', {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    });
-
+    await apiCall('/api/favorites', { method: 'POST', body: JSON.stringify(payload) });
     closeModal('favorite-modal');
-    document.getElementById('favorite-form').reset();
+    form.reset();
+    document.getElementById('bus-fields').style.display = 'block'; // Reset to default
+    document.getElementById('train-fields').style.display = 'none';
     await loadFavorites();
   } catch (error) {
     alert('Error creating favorite: ' + error.message);
@@ -543,74 +277,36 @@ async function handleCreateFavorite(e) {
 }
 
 async function checkFavorite(id) {
-  try {
-    const data = await apiCall(`/api/favorites/${id}`);
-    const fav = data.favorite;
+    try {
+        const { favorite: fav } = await apiCall(`/api/favorites/${id}`);
+        const query = fav.routeType === 'BUS'
+            ? `Next ${fav.routeId} bus at ${fav.boardingStopName}`
+            : `Next ${fav.routeId} line train at ${fav.boardingStopName}`;
 
-    // Add message to chat showing we're checking
-    const chatMessages = document.getElementById('chat-messages');
-    const userMsg = document.createElement('div');
-    userMsg.className = 'chat-message user-message';
-    userMsg.innerHTML = `
-      <div class="message-avatar">👤</div>
-      <div class="message-content">
-        <p>Check arrivals for ${fav.name}</p>
-      </div>
-    `;
-    chatMessages.appendChild(userMsg);
+        addChatMessage(`Checking arrivals for "${fav.name}"...`, 'user');
+        const typingId = addTypingIndicator();
 
-    // Show typing indicator
-    const typingId = showTypingIndicator();
-
-    // Query for arrivals
-    let query;
-    if (fav.routeType === 'BUS') {
-      query = `Next ${fav.routeId} bus at stop ${fav.stopId}`;
-    } else {
-      query = `Next ${fav.routeId} Line train at station ${fav.stationId}`;
+        try {
+            const data = await apiCall(`/api/cta/transit/ask?query=${encodeURIComponent(query)}`);
+            addChatMessage(data.answer, 'bot');
+        } catch (error) {
+            addChatMessage(`Error checking "${fav.name}": ${error.message}`, 'bot');
+        } finally {
+            removeTypingIndicator(typingId);
+        }
+    } catch (error) {
+        console.error("Error fetching favorite details:", error);
+        addChatMessage("Could not fetch favorite details to check arrivals.", 'bot');
     }
-
-    const response = await apiCall('/api/cta/query', {
-      method: 'POST',
-      body: JSON.stringify({ query })
-    });
-
-    removeTypingIndicator(typingId);
-
-    // Show results in chat
-    const botMsg = document.createElement('div');
-    botMsg.className = 'chat-message bot-message';
-    botMsg.innerHTML = `
-      <div class="message-avatar">🚇</div>
-      <div class="message-content">
-        <p><strong>${fav.name}</strong></p>
-        <p>${response.message}</p>
-      </div>
-    `;
-    chatMessages.appendChild(botMsg);
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-  } catch (error) {
-    console.error('Error checking favorite:', error);
-    alert('Error checking favorite: ' + error.message);
-  }
 }
 
 async function deleteFavorite(id) {
-  console.log('deleteFavorite called with id:', id);
-
-  if (!confirm('Are you sure you want to delete this favorite?')) {
-    console.log('User cancelled delete');
-    return;
-  }
-
+  if (!confirm('Are you sure you want to delete this favorite? This may also affect some schedules.')) return;
   try {
-    console.log('Sending DELETE request for favorite:', id);
-    const result = await apiCall(`/api/favorites/${id}`, { method: 'DELETE' });
-    console.log('Delete successful, reloading favorites');
-    await loadFavorites();
-    console.log('Favorites reloaded');
+    await apiCall(`/api/favorites/${id}`, { method: 'DELETE' });
+    // Reload both favorites and schedules as a schedule might have been deleted
+    await Promise.all([loadFavorites(), loadSchedules()]);
   } catch (error) {
-    console.error('Error deleting favorite:', error);
     alert('Error deleting favorite: ' + error.message);
   }
 }
@@ -620,28 +316,17 @@ async function loadSchedules() {
   try {
     const data = await apiCall('/api/schedules');
     const listDiv = document.getElementById('schedules-list');
-
     if (!data.schedules || data.schedules.length === 0) {
-      listDiv.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-state-icon">⏰</div>
-          <p>No scheduled alerts</p>
-          <small>Set up notifications for your daily routine!</small>
-        </div>
-      `;
+      listDiv.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⏰</div><p>No scheduled alerts</p><small>Set up notifications for your daily routine!</small></div>`;
+      await loadNextUpcomingTrip(); // Ensure card is hidden
       return;
     }
-
     let html = '';
     data.schedules.forEach(schedule => {
-      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const daysHtml = days.map((day, i) => {
-        const active = schedule.daysOfWeek.includes(i) ? 'active' : '';
-        return `<span class="day-badge ${active}">${day[0]}</span>`;
-      }).join('');
-
+      const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+      const daysHtml = days.map((day, i) => `<span class="day-badge ${schedule.daysOfWeek.includes(i) ? 'active' : ''}">${day}</span>`).join('');
       html += `
-        <div class="schedule-item" data-id="${schedule.id}">
+        <div class="schedule-item">
           <div class="schedule-info">
             <h3>${schedule.favorite.name}</h3>
             <div class="schedule-meta">
@@ -650,45 +335,35 @@ async function loadSchedules() {
             </div>
           </div>
           <div class="schedule-actions">
-            <label class="toggle-switch">
-              <input type="checkbox" class="toggle-schedule" data-id="${schedule.id}" ${schedule.enabled ? 'checked' : ''}>
-              <span class="toggle-slider"></span>
-            </label>
-            <button class="btn btn-danger btn-delete-schedule" data-id="${schedule.id}">Delete</button>
+            <label class="toggle-switch"><input type="checkbox" class="toggle-schedule" data-id="${schedule.id}" ${schedule.enabled ? 'checked' : ''}><span class="toggle-slider"></span></label>
+            <button class="btn btn-danger btn-sm btn-delete-schedule" data-id="${schedule.id}">Delete</button>
           </div>
-        </div>
-      `;
+        </div>`;
     });
-
     listDiv.innerHTML = html;
+    await loadNextUpcomingTrip();
   } catch (error) {
-    console.error('Error loading schedules:', error);
+      console.error("Error loading schedules", error);
+      document.getElementById('schedules-list').innerHTML = `<div class="empty-state"><p>Could not load schedules.</p></div>`;
   }
 }
 
 async function handleCreateSchedule(e) {
   e.preventDefault();
-
-  const favoriteId = document.getElementById('schedule-favorite').value;
-  const time = document.getElementById('schedule-time').value;
-  const daysOfWeek = Array.from(document.querySelectorAll('input[name="day"]:checked'))
-    .map(cb => parseInt(cb.value));
-
-  if (!favoriteId || !time || daysOfWeek.length === 0) {
-    alert('Please fill in all fields and select at least one day');
-    return;
+  const form = e.target;
+  const payload = {
+    favoriteId: form.elements['schedule-favorite'].value,
+    time: form.elements['schedule-time'].value,
+    daysOfWeek: Array.from(form.elements['day']).filter(cb => cb.checked).map(cb => parseInt(cb.value)),
+  };
+  if (!payload.favoriteId || !payload.time || payload.daysOfWeek.length === 0) {
+    alert('Please fill in all fields and select at least one day.'); return;
   }
-
   try {
-    await apiCall('/api/schedules', {
-      method: 'POST',
-      body: JSON.stringify({ favoriteId, time, daysOfWeek })
-    });
-
+    await apiCall('/api/schedules', { method: 'POST', body: JSON.stringify(payload) });
     closeModal('schedule-modal');
-    document.getElementById('schedule-form').reset();
+    form.reset();
     await loadSchedules();
-    await loadNextUpcomingTrip(); // Refresh next trip card
   } catch (error) {
     alert('Error creating schedule: ' + error.message);
   }
@@ -696,155 +371,111 @@ async function handleCreateSchedule(e) {
 
 async function toggleSchedule(id, enabled) {
   try {
-    const schedule = await apiCall(`/api/schedules/${id}`);
-    await apiCall(`/api/schedules/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        favoriteId: schedule.schedule.favoriteId,
-        time: schedule.schedule.time,
-        daysOfWeek: schedule.schedule.daysOfWeek,
-        enabled
-      })
-    });
-    await loadNextUpcomingTrip(); // Refresh next trip card
+    await apiCall(`/api/schedules/${id}`, { method: 'PUT', body: JSON.stringify({ enabled }) });
+    await loadNextUpcomingTrip();
   } catch (error) {
     alert('Error updating schedule: ' + error.message);
-    await loadSchedules();
+    await loadSchedules(); // Revert toggle on failure
   }
 }
 
 async function deleteSchedule(id) {
-  console.log('deleteSchedule called with id:', id);
-
-  if (!confirm('Are you sure you want to delete this schedule?')) {
-    console.log('User cancelled schedule delete');
-    return;
-  }
-
+  if (!confirm('Are you sure you want to delete this schedule?')) return;
   try {
-    console.log('Sending DELETE request for schedule:', id);
     await apiCall(`/api/schedules/${id}`, { method: 'DELETE' });
-    console.log('Schedule delete successful, reloading schedules');
     await loadSchedules();
-    await loadNextUpcomingTrip(); // Refresh next trip card
-    console.log('Schedules reloaded');
   } catch (error) {
-    console.error('Error deleting schedule:', error);
     alert('Error deleting schedule: ' + error.message);
   }
 }
 
-// Bus Route Helpers
+// CTA Data Helpers
 async function loadBusDirections() {
   const routeId = document.getElementById('bus-route').value;
-  const directionSelect = document.getElementById('bus-direction');
-
   if (!routeId) return;
-
+  const select = document.getElementById('bus-direction');
+  select.innerHTML = '<option value="">Loading...</option>';
   try {
     const data = await apiCall(`/api/cta/bus/${routeId}/directions`);
-
-    directionSelect.innerHTML = '<option value="">Select direction...</option>';
-    data.directions.forEach(dir => {
-      directionSelect.innerHTML += `<option value="${dir}">${dir}</option>`;
-    });
-  } catch (error) {
-    console.error('Error loading directions:', error);
-  }
+    select.innerHTML = '<option value="">Select direction...</option>' + data.directions.map(d => `<option value="${d}">${d}</option>`).join('');
+  } catch(e) { select.innerHTML = '<option value="">Error</option>'; }
 }
-
 async function loadBusStops() {
   const routeId = document.getElementById('bus-route').value;
   const direction = document.getElementById('bus-direction').value;
-  const stopSelect = document.getElementById('bus-stop');
-
   if (!routeId || !direction) return;
-
+  const select = document.getElementById('bus-stop');
+  select.innerHTML = '<option value="">Loading...</option>';
   try {
     const data = await apiCall(`/api/cta/bus/${routeId}/stops?direction=${encodeURIComponent(direction)}`);
-
-    stopSelect.innerHTML = '<option value="">Select stop...</option>';
-    data.stops.forEach(stop => {
-      stopSelect.innerHTML += `<option value="${stop.stpid}">${stop.stpnm}</option>`;
-    });
-  } catch (error) {
-    console.error('Error loading stops:', error);
-  }
+    select.innerHTML = '<option value="">Select stop...</option>' + data.stops.map(s => `<option value="${s.stpid}">${s.stpnm}</option>`).join('');
+  } catch(e) { select.innerHTML = '<option value="">Error</option>'; }
 }
-
-// Train Line Helpers
 async function loadTrainStations() {
   const line = document.getElementById('train-line').value;
-  const stationSelect = document.getElementById('train-station');
-  const directionSelect = document.getElementById('train-direction');
-
-  // Reset dependent dropdowns
-  stationSelect.innerHTML = '<option value="">Select station...</option>';
-  directionSelect.innerHTML = '<option value="">Select direction...</option>';
-
   if (!line) return;
-
+  const select = document.getElementById('train-station');
+  select.innerHTML = '<option value="">Loading...</option>';
   try {
     const data = await apiCall(`/api/cta/train/${line}/stations`);
-
-    data.stations.forEach(station => {
-      stationSelect.innerHTML += `<option value="${station.map_id}">${station.station_name}</option>`;
-    });
-  } catch (error) {
-    console.error('Error loading stations:', error);
-  }
+    select.innerHTML = '<option value="">Select station...</option>' + data.stations.map(s => `<option value="${s.map_id}">${s.station_name}</option>`).join('');
+  } catch(e) { select.innerHTML = '<option value="">Error</option>'; }
 }
 
-async function loadTrainDirections() {
-  const line = document.getElementById('train-line').value;
-  const stationId = document.getElementById('train-station').value;
-  const directionSelect = document.getElementById('train-direction');
-
-  directionSelect.innerHTML = '<option value="">Select direction...</option>';
-
-  if (!line || !stationId) return;
-
+// Next Trip Card
+async function loadNextUpcomingTrip() {
+  const card = document.getElementById('next-trip-card');
   try {
-    const data = await apiCall(`/api/cta/train/${line}/stations`);
-    const station = data.stations.find(s => s.map_id === stationId);
-
-    if (station && station.directions) {
-      // Add unique directions for this station
-      const directions = [...new Set(station.directions)];
-      directions.forEach(dir => {
-        const dirName = dir === '1' ? 'Southbound' : dir === '5' ? 'Northbound' : `Direction ${dir}`;
-        directionSelect.innerHTML += `<option value="${dir}">${dirName}</option>`;
-      });
+    const data = await apiCall('/api/schedules');
+    if (!data.schedules || data.schedules.length === 0) {
+      card.style.display = 'none'; return;
     }
+    const now = new Date();
+    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    const upcomingSchedules = data.schedules
+      .filter(s => s.enabled && s.daysOfWeek.includes(now.getDay()) && s.time >= currentTime)
+      .sort((a, b) => a.time.localeCompare(b.time));
+
+    if (upcomingSchedules.length > 0) {
+      const nextSchedule = upcomingSchedules[0];
+      const [hours, minutes] = nextSchedule.time.split(':').map(Number);
+      const scheduleTime = new Date();
+      scheduleTime.setHours(hours, minutes, 0, 0);
+      const minutesUntil = Math.round((scheduleTime - now) / 60000);
+
+      if (minutesUntil >= 0) {
+        document.getElementById('next-trip-info').innerHTML = `
+          <div class="trip-details">
+            <h3>${nextSchedule.favorite.name}</h3>
+            <div class="trip-route">
+              <span>${nextSchedule.favorite.routeType === 'BUS' ? '🚌' : '🚊'} ${nextSchedule.favorite.routeId}</span>
+            </div>
+          </div>
+          <div class="trip-countdown">
+            <div class="countdown-time">${minutesUntil}</div>
+            <div class="countdown-label">minutes</div>
+          </div>`;
+        card.style.display = 'block';
+        return;
+      }
+    }
+    card.style.display = 'none';
   } catch (error) {
-    console.error('Error loading directions:', error);
+    console.error("Error loading next trip:", error);
+    card.style.display = 'none';
   }
 }
 
-// Modal Helpers
-function openModal(modalId) {
-  document.getElementById(modalId).classList.add('show');
-}
-
-function closeModal(modalId) {
-  document.getElementById(modalId).classList.remove('show');
-}
-
-// Update schedule favorite dropdown
+// Modal & Misc Helpers
+function openModal(modalId) { document.getElementById(modalId).classList.add('show'); }
+function closeModal(modalId) { document.getElementById(modalId).classList.remove('show'); }
 function updateScheduleFavoriteDropdown(favorites) {
   const select = document.getElementById('schedule-favorite');
-  select.innerHTML = '<option value="">Select a favorite...</option>';
-
-  favorites.forEach(fav => {
-    select.innerHTML += `<option value="${fav.id}">${fav.name}</option>`;
-  });
+  select.innerHTML = '<option value="">Select a favorite...</option>' + favorites.map(fav => `<option value="${fav.id}">${fav.name}</option>`).join('');
 }
-
-// Utility
 function formatTime(time) {
   const [hours, minutes] = time.split(':');
   const h = parseInt(hours);
-  const ampm = h >= 12 ? 'PM' : 'AM';
-  const displayHours = h % 12 || 12;
-  return `${displayHours}:${minutes} ${ampm}`;
+  return `${h % 12 || 12}:${minutes} ${h >= 12 ? 'PM' : 'AM'}`;
 }

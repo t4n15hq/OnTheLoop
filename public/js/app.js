@@ -64,6 +64,36 @@ function setupEventListeners() {
   // Train line selection
   document.getElementById('train-line').addEventListener('change', loadTrainStations);
   document.getElementById('train-station').addEventListener('change', loadTrainDirections);
+
+  // Event delegation for favorites buttons
+  document.getElementById('favorites-list').addEventListener('click', (e) => {
+    const target = e.target;
+    if (target.classList.contains('btn-check-favorite')) {
+      const id = target.getAttribute('data-id');
+      checkFavorite(id);
+    } else if (target.classList.contains('btn-delete-favorite')) {
+      const id = target.getAttribute('data-id');
+      deleteFavorite(id);
+    }
+  });
+
+  // Event delegation for schedules buttons and toggles
+  document.getElementById('schedules-list').addEventListener('click', (e) => {
+    const target = e.target;
+    if (target.classList.contains('btn-delete-schedule')) {
+      const id = target.getAttribute('data-id');
+      deleteSchedule(id);
+    }
+  });
+
+  document.getElementById('schedules-list').addEventListener('change', (e) => {
+    const target = e.target;
+    if (target.classList.contains('toggle-schedule')) {
+      const id = target.getAttribute('data-id');
+      const enabled = target.checked;
+      toggleSchedule(id, enabled);
+    }
+  });
 }
 
 // API Helper
@@ -308,8 +338,8 @@ async function loadFavorites() {
             </div>
           </div>
           <div class="favorite-actions">
-            <button class="btn btn-secondary" onclick="checkFavorite('${fav.id}')">Check</button>
-            <button class="btn btn-danger" onclick="deleteFavorite('${fav.id}')">Delete</button>
+            <button class="btn btn-secondary btn-check-favorite" data-id="${fav.id}">Check</button>
+            <button class="btn btn-danger btn-delete-favorite" data-id="${fav.id}">Delete</button>
           </div>
         </div>
       `;
@@ -463,9 +493,7 @@ async function deleteFavorite(id) {
   }
 }
 
-// Make functions globally accessible for onclick handlers
-window.deleteFavorite = deleteFavorite;
-window.checkFavorite = checkFavorite;
+// Functions no longer need to be global - using event delegation instead
 
 // Schedules
 async function loadSchedules() {
@@ -497,11 +525,10 @@ async function loadSchedules() {
           </div>
           <div class="schedule-actions">
             <label class="toggle-switch">
-              <input type="checkbox" ${schedule.enabled ? 'checked' : ''}
-                     onchange="toggleSchedule('${schedule.id}', this.checked)">
+              <input type="checkbox" class="toggle-schedule" data-id="${schedule.id}" ${schedule.enabled ? 'checked' : ''}>
               <span class="toggle-slider"></span>
             </label>
-            <button class="btn btn-danger" onclick="deleteSchedule('${schedule.id}')">Delete</button>
+            <button class="btn btn-danger btn-delete-schedule" data-id="${schedule.id}">Delete</button>
           </div>
         </div>
       `;
@@ -578,8 +605,7 @@ async function deleteSchedule(id) {
   }
 }
 
-// Make deleteSchedule globally accessible for onclick handlers
-window.deleteSchedule = deleteSchedule;
+// deleteSchedule no longer needs to be global - using event delegation
 
 // Bus Route Helpers
 async function loadBusDirections() {

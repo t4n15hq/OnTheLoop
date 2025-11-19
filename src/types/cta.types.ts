@@ -68,4 +68,5 @@ export interface FormattedArrival {
   minutesAway: number;
   isApproaching: boolean;
   isDelayed: boolean;
+  isScheduled?: boolean; // True if based on schedule (Ghost Train risk), False if live GPS
 }

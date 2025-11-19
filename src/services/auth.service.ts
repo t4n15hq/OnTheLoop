@@ -228,4 +228,49 @@ export class AuthService {
       throw error;
     }
   }
+  /**
+   * Update user password
+   */
+  static async updatePassword(userId: string, password: string) {
+    try {
+      // Hash new password
+      const hashedPassword = await this.hashPassword(password);
+
+      // Update user
+      await prisma.user.update({
+        where: { id: userId },
+        data: { password: hashedPassword },
+      });
+
+      logger.info(`Password updated for user: ${userId}`);
+    } catch (error) {
+      logger.error('Update password error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update user profile
+   */
+  static async updateProfile(userId: string, data: { name?: string; email?: string }) {
+    try {
+      const user = await prisma.user.update({
+        where: { id: userId },
+        data,
+        select: {
+          id: true,
+          phoneNumber: true,
+          name: true,
+          email: true,
+          createdAt: true,
+        },
+      });
+
+      logger.info(`Profile updated for user: ${userId}`);
+      return user;
+    } catch (error) {
+      logger.error('Update profile error:', error);
+      throw error;
+    }
+  }
 }

@@ -14,19 +14,22 @@ const CTA_BUS_API_BASE = 'http://www.ctabustracker.com/bustime/api/v2';
 export class CTAService {
   /**
    * Get train arrivals for a specific station
-   * @param stationId - CTA station ID (e.g., "40380" for Jackson Blue Line)
-   * @param routeCode - Optional route filter (e.g., "Blue", "Red")
+   * @param stationId - CTA station map ID
+   * @param routeCode - Optional route filter (e.g., "Red", "Blue")
+   * @param direction - Optional direction filter (e.g., "Northbound", "Southbound")
    */
   static async getTrainArrivals(
     stationId: string,
-    routeCode?: string
+    routeCode?: string,
+    direction?: string
   ): Promise<FormattedArrival[]> {
     try {
       // Generate cache key
       const cacheKey = CacheService.generateKey(
-        'train',
+        'train-arrivals',
         stationId,
-        routeCode || 'all'
+        routeCode || 'all',
+        direction || 'all'
       );
 
       // Check cache first
@@ -56,7 +59,18 @@ export class CTAService {
         throw new Error(response.data.ctatt.errNm);
       }
 
-      const arrivals = response.data.ctatt.eta || [];
+      let arrivals = response.data.ctatt.eta || [];
+
+      // Filter by direction if provided
+      // CTA uses numeric codes: 1 = Northbound/Eastbound, 5 = Southbound/Westbound
+      if (direction) {
+        const directionCode = this.mapDirectionToCode(direction);
+        
+        if (directionCode) {
+          // Use loose equality or string conversion for trDr to handle potential number/string mismatch
+          arrivals = arrivals.filter(a => String(a.trDr) === directionCode);
+        }
+      }
 
       const formattedArrivals = arrivals.map((arrival) => {
         const arrivalTime = new Date(arrival.arrT);
@@ -72,6 +86,7 @@ export class CTAService {
           minutesAway,
           isApproaching: arrival.isApp === '1',
           isDelayed: arrival.isDly === '1',
+          isScheduled: arrival.isSch === '1',
         };
       });
 
@@ -83,6 +98,20 @@ export class CTAService {
       logger.error('Error fetching train arrivals:', error);
       throw error;
     }
+  }
+
+  /**
+   * Map human-readable direction to CTA direction code
+   * CTA uses: 1 = Northbound/Eastbound, 5 = Southbound/Westbound
+   */
+  private static mapDirectionToCode(direction: string): string | null {
+    const dir = direction.toLowerCase();
+    if (dir.includes('north') || dir.includes('east')) {
+      return '1';
+    } else if (dir.includes('south') || dir.includes('west')) {
+      return '5';
+    }
+    return null;
   }
 
   /**

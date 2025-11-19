@@ -13,6 +13,7 @@ datasource db {
 model User {
   id           String       @id @default(cuid())
   phoneNumber  String       @unique
+  name         String?      // Display name
   email        String?      // Optional email for notifications
   password     String
   createdAt    DateTime     @default(now())

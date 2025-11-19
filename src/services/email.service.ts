@@ -84,41 +84,45 @@ class EmailService {
         minute: '2-digit',
         hour12: true
       });
-      return `${minutesAway} min (${timeStr})`;
+      return { mins: minutesAway, time: timeStr };
     };
 
     let arrivalsHtml = '';
     if (arrivals.length === 0) {
-      arrivalsHtml = '<p style="color: #64748B; font-size: 14px; margin: 16px 0;">No arrivals found at this time.</p>';
+      arrivalsHtml = '<p style="color: #888888; font-family: monospace; margin: 16px 0;">NO ARRIVALS FOUND.</p>';
     } else {
       arrivalsHtml = `
-        <div style="margin: 20px 0;">
-          <p style="margin: 0 0 12px 0; color: #64748B; font-size: 13px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">NEXT ARRIVALS</p>
+        <div style="margin: 24px 0;">
+          <p style="margin: 0 0 16px 0; color: #888888; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-family: monospace;">UPCOMING</p>
           ${arrivals
             .slice(0, 3)
             .map(
-              (arrival) => `
-                <div style="padding: 14px 0; border-bottom: 1px solid #F1F5F9;">
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 18px;">🚇</span>
-                    <span style="color: #0EA5E9; font-size: 16px; font-weight: 700;">${formatArrival(arrival.minutesAway)}</span>
+              (arrival) => {
+                const { mins, time } = formatArrival(arrival.minutesAway);
+                return `
+                <div style="padding: 16px 0; border-bottom: 1px solid #262626; display: flex; justify-content: space-between; align-items: center;">
+                  <div>
+                    <div style="color: #EDEDED; font-size: 16px; font-weight: 600; margin-bottom: 4px;">${arrival.destination}</div>
+                    <div style="color: #888888; font-size: 12px; font-family: monospace;">${time}</div>
                   </div>
-                  <div style="margin-top: 4px; padding-left: 26px; color: #64748B; font-size: 14px;">${arrival.destination}</div>
+                  <div style="text-align: right;">
+                    <span style="color: #2E9CFF; font-size: 24px; font-weight: 700; letter-spacing: -1px;">${mins}</span>
+                    <span style="color: #888888; font-size: 12px; font-weight: 500;">min</span>
+                  </div>
                 </div>
-              `
+              `;
+              }
             )
             .join('')}
         </div>
       `;
     }
 
-    // Service status (always show running on time for now)
+    // Service status
     const serviceStatus = `
-      <div style="margin: 24px 0; padding: 12px; background: #F0FDF4; border-radius: 8px; border-left: 3px solid #10B981;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 16px;">✅</span>
-          <span style="color: #059669; font-weight: 600; font-size: 14px;">Running on time</span>
-        </div>
+      <div style="margin-top: 32px; padding: 16px; background: rgba(0, 255, 102, 0.05); border: 1px solid rgba(0, 255, 102, 0.2); border-radius: 8px; display: flex; align-items: center; gap: 12px;">
+        <div style="width: 8px; height: 8px; background: #00FF66; border-radius: 50%; box-shadow: 0 0 8px rgba(0, 255, 102, 0.4);"></div>
+        <span style="color: #00FF66; font-family: monospace; font-size: 12px; letter-spacing: 0.5px;">SYSTEM STATUS: NORMAL</span>
       </div>
     `;
 
@@ -128,36 +132,52 @@ class EmailService {
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>${subject}</title>
         </head>
-        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F8FAFC;">
-          <div style="max-width: 600px; margin: 40px auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);">
+        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #050505; color: #EDEDED;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+            <tr>
+              <td style="padding: 20px 0; text-align: center; background-color: #050505;">
+                
+                <!-- Main Card -->
+                <div style="max-width: 600px; margin: 0 auto; background-color: #0F0F0F; border: 1px solid #262626; border-radius: 16px; overflow: hidden; text-align: left;">
+                  
+                  <!-- Header -->
+                  <div style="padding: 24px 32px; border-bottom: 1px solid #262626; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-weight: 800; font-size: 20px; letter-spacing: -1px; color: #EDEDED;">
+                      <span style="color: #2E9CFF;">⟲</span> LOOP
+                    </div>
+                    <div style="font-family: monospace; color: #888888; font-size: 12px;">V2.0</div>
+                  </div>
 
-            <!-- Content -->
-            <div style="padding: 32px;">
-              <!-- Location Icon + Route Name -->
-              <div style="margin-bottom: 8px;">
-                <span style="font-size: 16px; margin-right: 4px;">📍</span>
-                <span style="color: #0F172A; font-size: 18px; font-weight: 700;">${displayName}</span>
-              </div>
-              <p style="margin: 0 0 20px 0; color: #64748B; font-size: 13px;">${boardingStopName && alightingStopName ? 'Your journey' : 'Scheduled arrival times'}</p>
+                  <!-- Content -->
+                  <div style="padding: 32px;">
+                    <!-- Hero -->
+                    <div style="margin-bottom: 32px;">
+                      <div style="font-family: monospace; font-size: 11px; color: #888888; margin-bottom: 8px; letter-spacing: 1px;">TRACKED ROUTE</div>
+                      <div style="font-size: 28px; font-weight: 700; letter-spacing: -0.5px; color: #EDEDED; margin-bottom: 4px;">${displayName}</div>
+                      <div style="color: #888888; font-size: 14px;">${boardingStopName && alightingStopName ? 'Your scheduled trip' : 'Arrival Alert'}</div>
+                    </div>
 
-              ${arrivalsHtml}
+                    ${arrivalsHtml}
 
-              ${serviceStatus}
-            </div>
+                    ${serviceStatus}
+                  </div>
 
-            <!-- Footer -->
-            <div style="background: #F8FAFC; padding: 20px 32px; border-top: 1px solid #E2E8F0;">
-              <div style="text-align: center; margin-bottom: 12px;">
-                <a href="mailto:noreply@askcta.xyz?subject=Unsubscribe" style="color: #0EA5E9; text-decoration: none; font-size: 13px; font-weight: 500;">
-                  Manage alerts
-                </a>
-              </div>
-              <p style="margin: 0; text-align: center; color: #94A3B8; font-size: 11px; line-height: 1.5;">
-                © 2025 Loop • Powered by CTA APIs & Google Gemini AI
-              </p>
-            </div>
-          </div>
+                  <!-- Footer -->
+                  <div style="background-color: #0A0A0A; padding: 24px; border-top: 1px solid #262626; text-align: center;">
+                    <a href="https://askcta.xyz" style="display: inline-block; color: #EDEDED; background-color: #262626; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px; margin-bottom: 20px;">Open Dashboard</a>
+                    
+                    <p style="margin: 0; color: #444444; font-size: 11px; font-family: monospace; line-height: 1.6;">
+                      Loop Utility • Chicago Transit Automation<br>
+                      <a href="#" style="color: #666666; text-decoration: none;">Unsubscribe</a>
+                    </p>
+                  </div>
+
+                </div>
+              </td>
+            </tr>
+          </table>
         </body>
       </html>
     `;

@@ -17,13 +17,16 @@ const app = express();
 
 // Middleware
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        imgSrc: ["'self'", "data:", "https:"], // Allow images from external sources just in case
+        connectSrc: ["'self'", "https://lapi.transitchicago.com", "http://lapi.transitchicago.com", "http://www.ctabustracker.com"], // Allow connections to CTA APIs if frontend calls them directly (though it shouldn't)
+      },
     },
-  },
 }));
 app.use(cors());
 app.use(express.json());

@@ -61,5 +61,17 @@ router.get('/bus/:routeId/stops/near-location', CTAController.findStopsNearNatur
  * Query params: query (e.g., "How do I get from Northwestern to downtown?")
  */
 router.get('/transit/ask', CTAController.getTransitSuggestion);
+/**
+ * GET /api/cta/arrivals
+ * Get live arrivals for a specific route and stop
+ * Query params: type (BUS/TRAIN), routeId, stopId
+ */
+router.get('/arrivals', CTAController.getArrivals);
+/**
+ * POST /api/cta/parse-route
+ * Parse natural language route configuration
+ * Body: { query: string }
+ */
+router.post('/parse-route', CTAController.parseRouteConfig);
 
 export default router;

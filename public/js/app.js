@@ -708,13 +708,23 @@ async function toggleSchedule(id, enabled) {
 }
 
 function openModal(id) {
-  document.getElementById(id).classList.remove('hidden');
-  document.getElementById('modal-backdrop').classList.remove('hidden');
+  const modal = document.getElementById(id);
+  const backdrop = document.getElementById('modal-backdrop');
+  if (modal) {
+    modal.classList.remove('hidden');
+    modal.classList.add('show'); // Ensure show class is added
+  }
+  if (backdrop) backdrop.classList.remove('hidden');
 }
 
 function closeModal(id) {
-  document.getElementById(id).classList.add('hidden');
-  document.getElementById('modal-backdrop').classList.add('hidden');
+  const modal = document.getElementById(id);
+  const backdrop = document.getElementById('modal-backdrop');
+  if (modal) {
+    modal.classList.add('hidden');
+    modal.classList.remove('show');
+  }
+  if (backdrop) backdrop.classList.add('hidden');
 }
 
 async function checkFavorite(id) {
@@ -752,16 +762,10 @@ async function checkFavorite(id) {
       }
 
       // 3. Fetch arrivals directly with exact IDs
-      // Use the new /api/cta/arrivals endpoint which handles direction filtering for trains
-      let apiUrl = `/api/cta/arrivals?`;
+      let apiUrl = `/api/cta/arrivals?type=${encodeURIComponent(type)}&stopId=${encodeURIComponent(stopId)}&routeId=${encodeURIComponent(routeId)}`;
 
-      if (type === 'TRAIN') {
-        apiUrl += `mapid=${stopId}&route=${routeId}`;
-        if (f.direction) {
-          apiUrl += `&direction=${encodeURIComponent(f.direction)}`;
-        }
-      } else {
-        apiUrl += `stpid=${stopId}&rt=${routeId}`;
+      if (type === 'TRAIN' && f.direction) {
+        apiUrl += `&direction=${encodeURIComponent(f.direction)}`;
       }
 
       const arrivals = await apiCall(apiUrl);

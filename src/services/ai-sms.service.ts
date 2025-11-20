@@ -51,6 +51,12 @@ CRITICAL: For routeHint, return ONLY the color name or number:
 - CORRECT: "Blue", "Red", "157"
 - WRONG: "Blue Line", "Red Line", "Bus 157"
 
+COMMON ROUTE ORIENTATIONS (Use these to infer direction if ambiguous):
+- Route 157 (Streeterville/Taylor): Runs Eastbound/Westbound (NOT North/South)
+- Route 60 (Blue Island/26th): Runs Northbound/Southbound (mostly)
+- Red Line: Northbound/Southbound
+- Blue Line: Northbound (to O'Hare), Southbound (to Forest Park) - even though it runs diagonal
+
 EXAMPLES:
 1. "Red Line from Howard to Loop"
    → isAddressToAddress: false, routeHint: "Red", originAddress: null, destinationAddress: null
@@ -59,8 +65,8 @@ EXAMPLES:
    → isAddressToAddress: true, routeHint: null (you'll infer the route), originAddress: "1029 S Lytle, Chicago, IL", destinationAddress: "820 S Wolcott, Chicago, IL"
 
 3. "157 bus from Taylor & Racine to Polk & Wolcott"
-   → isAddressToAddress: false, routeHint: "157", originAddress: null, destinationAddress: null
-   (These are stop names, not addresses)
+   → isAddressToAddress: false, routeHint: "157", directionHint: "Westbound", originAddress: null, destinationAddress: null
+   (Since 157 is East/West and Taylor/Racine -> Polk/Wolcott is Westward)
 
 4. "Blue Line to O'Hare from downtown"
    → isAddressToAddress: false, routeHint: "Blue", directionHint: "Northbound", originAddress: null, destinationAddress: null

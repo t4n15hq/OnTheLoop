@@ -25,6 +25,7 @@ app.use(helmet({
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https:"], // Allow images from external sources just in case
         connectSrc: ["'self'", "https://lapi.transitchicago.com", "http://lapi.transitchicago.com", "http://www.ctabustracker.com"], // Allow connections to CTA APIs if frontend calls them directly (though it shouldn't)
+        upgradeInsecureRequests: null, // Disable auto-upgrade to HTTPS since we don't have an SSL certificate yet
       },
     },
 }));

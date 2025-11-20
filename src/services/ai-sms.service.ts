@@ -151,11 +151,42 @@ BE CONSERVATIVE: If you're unsure whether something is an address, assume it's a
               const validDirs = await CTALookupService.getBusDirections(config.routeId);
               let searchDir = config.direction || 'Eastbound';
 
+              // Check if our inferred direction is actually valid for this route
               const match = validDirs.find(d => d.toLowerCase().startsWith(searchDir.toLowerCase().substring(0, 4)));
-              if (match) searchDir = match;
-              else if (validDirs.length > 0) searchDir = validDirs[0];
+
+              if (match) {
+                searchDir = match;
+              } else {
+                // Our inferred direction (e.g. North) isn't valid for this route (e.g. runs East/West)
+                // Let's try to map it using the secondary vector component
+                logger.info(`Inferred direction ${searchDir} not valid for route ${config.routeId} (Valid: ${validDirs.join(', ')}). Re-evaluating...`);
+
+                if (destLoc) { // We need destLoc to re-calc
+                  const dLat = destLoc.coordinates.lat - originLoc.coordinates.lat;
+                  const dLon = destLoc.coordinates.lon - originLoc.coordinates.lon;
+
+                  const hasEastWest = validDirs.some(d => d.includes('East') || d.includes('West'));
+                  const hasNorthSouth = validDirs.some(d => d.includes('North') || d.includes('South'));
+
+                  if (hasEastWest && !hasNorthSouth) {
+                    // Route is strictly East/West, map to that
+                    searchDir = dLon > 0 ? 'Eastbound' : 'Westbound';
+                  } else if (hasNorthSouth && !hasEastWest) {
+                    // Route is strictly North/South, map to that
+                    searchDir = dLat > 0 ? 'Northbound' : 'Southbound';
+                  } else if (validDirs.length > 0) {
+                    // Fallback to first valid direction
+                    searchDir = validDirs[0];
+                  }
+
+                  // Snap to exact string
+                  const newMatch = validDirs.find(d => d.toLowerCase().startsWith(searchDir.toLowerCase().substring(0, 4)));
+                  if (newMatch) searchDir = newMatch;
+                }
+              }
 
               config.direction = searchDir;
+              logger.info(`Final resolved direction: ${config.direction}`);
 
               // 2. Find boarding stop - trust pure distance calculation
               const stops = await CTALookupService.findNearbyStops(

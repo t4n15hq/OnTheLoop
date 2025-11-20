@@ -69,16 +69,7 @@ async function processNotification(jobData: NotificationJobData) {
     // Get user to check for email
     const user = await AuthService.getUserByPhone(phoneNumber);
 
-    // Send SMS (if Twilio is configured and working)
-    try {
-      const message = CTAService.formatArrivalsForSMS(arrivals, title);
-      await SMSService.sendSMS(phoneNumber, message);
-      logger.info(`SMS notification sent for favorite ${favoriteId} to ${phoneNumber}`);
-    } catch (smsError) {
-      logger.warn(`Failed to send SMS for favorite ${favoriteId}:`, smsError);
-    }
-
-    // Send Email (if user has email configured)
+    // Send Email if user has email configured
     if (user?.email) {
       try {
         const formattedArrivals = arrivals.map(a => ({
@@ -96,6 +87,24 @@ async function processNotification(jobData: NotificationJobData) {
         logger.info(`Email notification sent for favorite ${favoriteId} to ${user.email}`);
       } catch (emailError) {
         logger.warn(`Failed to send email for favorite ${favoriteId}:`, emailError);
+        // Fallback to SMS if email fails? 
+        // For now, let's try SMS if email fails
+        try {
+          const message = CTAService.formatArrivalsForSMS(arrivals, title);
+          await SMSService.sendSMS(phoneNumber, message);
+          logger.info(`Fallback SMS notification sent for favorite ${favoriteId} to ${phoneNumber}`);
+        } catch (smsError) {
+          logger.warn(`Failed to send fallback SMS for favorite ${favoriteId}:`, smsError);
+        }
+      }
+    } else {
+      // No email, send SMS
+      try {
+        const message = CTAService.formatArrivalsForSMS(arrivals, title);
+        await SMSService.sendSMS(phoneNumber, message);
+        logger.info(`SMS notification sent for favorite ${favoriteId} to ${phoneNumber}`);
+      } catch (smsError) {
+        logger.warn(`Failed to send SMS for favorite ${favoriteId}:`, smsError);
       }
     }
   } catch (error) {

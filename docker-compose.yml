@@ -12,6 +12,7 @@ services:
       - DATABASE_URL=postgresql://ctauser:ctapassword@postgres:5432/cta_track
       - REDIS_URL=redis://redis:6379
       - NODE_ENV=production
+      - TZ=America/Chicago
       # Secrets passed from .env file
       - CTA_TRAIN_API_KEY=${CTA_TRAIN_API_KEY}
       - CTA_BUS_API_KEY=${CTA_BUS_API_KEY}
@@ -32,6 +33,7 @@ services:
       - DATABASE_URL=postgresql://ctauser:ctapassword@postgres:5432/cta_track
       - REDIS_URL=redis://redis:6379
       - NODE_ENV=production
+      - TZ=America/Chicago
       - CTA_TRAIN_API_KEY=${CTA_TRAIN_API_KEY}
       - CTA_BUS_API_KEY=${CTA_BUS_API_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}

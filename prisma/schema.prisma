@@ -11,17 +11,20 @@ datasource db {
 }
 
 model User {
-  id                  String       @id @default(cuid())
-  email               String       @unique
-  name                String?
-  password            String
-  telegramChatId      String?      @unique
-  telegramLinkToken   String?      @unique
-  emailNotifications  Boolean      @default(false)
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
-  favorites           Favorite[]
-  schedules           Schedule[]
+  id                       String       @id @default(cuid())
+  email                    String       @unique
+  name                     String?
+  password                 String
+  telegramChatId           String?      @unique
+  telegramLinkToken        String?      @unique
+  emailNotifications       Boolean      @default(false)
+  // Global mute: while in the future, all scheduled deliveries are skipped.
+  notificationsPausedUntil DateTime?
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+  favorites                Favorite[]
+  schedules                Schedule[]
+  notificationLogs         NotificationLog[]
 
   @@map("users")
 }
@@ -66,12 +69,26 @@ model Schedule {
   favorite    Favorite  @relation(fields: [favoriteId], references: [id], onDelete: Cascade)
 
   // Scheduling details
-  time        String    // Time in HH:mm format (e.g., "08:45", "09:00")
+  time        String    // Target arrival time in HH:mm (America/Chicago)
   daysOfWeek  Int[]     // Array of days: 0=Sunday, 1=Monday, etc.
   enabled     Boolean   @default(true)
 
+  // How many minutes BEFORE `time` we should send the ping.
+  // e.g. time="08:30", leadMinutes=15 → fires at 08:15 Chicago.
+  leadMinutes Int       @default(0)
+
+  // Delivery channel selection. AUTO prefers Telegram when linked,
+  // falls back to email; BOTH sends via every configured channel.
+  channel     Channel   @default(AUTO)
+
+  // Set by the scheduler each time a job is enqueued for this schedule;
+  // used to dedupe within the same minute window.
+  lastTriggeredAt DateTime?
+
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+
+  notificationLogs NotificationLog[]
 
   @@map("schedules")
 }
@@ -79,4 +96,31 @@ model Schedule {
 enum RouteType {
   TRAIN
   BUS
+}
+
+enum Channel {
+  AUTO
+  EMAIL
+  TELEGRAM
+  BOTH
+}
+
+// Append-only record of delivery attempts. Makes "why didn't my email arrive?"
+// answerable without tailing server logs.
+model NotificationLog {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scheduleId String?
+  schedule   Schedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  channel    String    // "EMAIL" | "TELEGRAM"
+  status     String    // "SENT" | "FAILED" | "SKIPPED"
+  detail     String?   // Error message, skip reason, or provider message id
+  kind       String    @default("SCHEDULED") // "SCHEDULED" | "TEST"
+
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@map("notification_logs")
 }

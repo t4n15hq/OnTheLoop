@@ -3,6 +3,7 @@ import {
   FavoriteController,
   createFavoriteValidation,
   createScheduleValidation,
+  updateScheduleValidation,
 } from '../controllers/favorite.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 
@@ -21,7 +22,11 @@ router.delete('/favorites/:id', FavoriteController.deleteFavorite);
 // Schedules
 router.post('/schedules', createScheduleValidation, FavoriteController.createSchedule);
 router.get('/schedules', FavoriteController.getSchedules);
-router.put('/schedules/:id', createScheduleValidation, FavoriteController.updateSchedule);
+router.put('/schedules/:id', updateScheduleValidation, FavoriteController.updateSchedule);
 router.delete('/schedules/:id', FavoriteController.deleteSchedule);
+router.post('/schedules/:id/test', FavoriteController.testSchedule);
+
+// Delivery history
+router.get('/notifications/log', FavoriteController.getNotificationLog);
 
 export default router;

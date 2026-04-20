@@ -108,6 +108,8 @@ function setupEventListeners() {
       // Update content
       document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
       document.getElementById(`tab-${tab}`).classList.remove('hidden');
+
+      if (tab === 'delivery') loadDeliveryLog();
     });
   });
 
@@ -206,17 +208,28 @@ function setupEventListeners() {
   document.getElementById('schedules-list').addEventListener('click', (e) => {
     const toggle = e.target.closest('.pill-toggle');
     const delBtn = e.target.closest('.delete-btn');
+    const testBtn = e.target.closest('.test-btn');
 
     if (toggle) {
       e.preventDefault();
       const id = toggle.dataset.id;
       const currentState = toggle.classList.contains('active');
       toggleSchedule(id, !currentState);
+    } else if (testBtn) {
+      e.preventDefault();
+      testSchedule(testBtn.dataset.id, testBtn);
     } else if (delBtn) {
       e.preventDefault();
       deleteSchedule(delBtn.dataset.id);
     }
   });
+
+  // Pause-notifications controls in the Delivery tab.
+  document.querySelectorAll('[data-pause-hours]').forEach((btn) => {
+    btn.addEventListener('click', () => pauseNotifications(parseInt(btn.dataset.pauseHours, 10)));
+  });
+  document.getElementById('pause-resume-btn')?.addEventListener('click', resumeNotifications);
+  document.getElementById('refresh-log-btn')?.addEventListener('click', loadDeliveryLog);
 }
 
 /* ================= THEME ================= */
@@ -256,6 +269,84 @@ function loadProfile() {
   }
 
   renderTelegramStatus();
+  renderPauseStatus();
+}
+
+function renderPauseStatus() {
+  const status = document.getElementById('pause-status');
+  const resume = document.getElementById('pause-resume-btn');
+  if (!status || !resume) return;
+
+  const until = currentUser?.notificationsPausedUntil;
+  const paused = until && new Date(until) > new Date();
+  if (paused) {
+    const d = new Date(until);
+    const when = d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    status.textContent = `Paused until ${when}. Scheduled alerts won't be sent. Test deliveries still work.`;
+    resume.classList.remove('hidden');
+  } else {
+    status.textContent = 'Notifications are active.';
+    resume.classList.add('hidden');
+  }
+}
+
+async function pauseNotifications(hours) {
+  const until = new Date(Date.now() + hours * 3600 * 1000).toISOString();
+  try {
+    const res = await apiCall('/api/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ notificationsPausedUntil: until }),
+    });
+    currentUser = { ...currentUser, ...res.user };
+    renderPauseStatus();
+  } catch (e) { alert(e.message || 'Failed to pause notifications'); }
+}
+
+async function resumeNotifications() {
+  try {
+    const res = await apiCall('/api/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ notificationsPausedUntil: null }),
+    });
+    currentUser = { ...currentUser, ...res.user };
+    renderPauseStatus();
+  } catch (e) { alert(e.message || 'Failed to resume notifications'); }
+}
+
+async function loadDeliveryLog() {
+  const list = document.getElementById('delivery-log-list');
+  if (!list) return;
+  list.innerHTML = '<p style="color: var(--ink-3); font-size: 0.85rem; margin: 0;">Loading…</p>';
+  try {
+    const data = await apiCall('/api/notifications/log?limit=25');
+    if (!data.logs || data.logs.length === 0) {
+      list.innerHTML = '<p style="color: var(--ink-3); font-size: 0.85rem; margin: 0;">No deliveries yet. Tap ▶ on a schedule to send a test.</p>';
+      return;
+    }
+    list.innerHTML = data.logs.map(entry => {
+      const when = new Date(entry.createdAt).toLocaleString(undefined, {
+        month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+      });
+      const statusColor = entry.status === 'SENT' ? 'var(--cta-green)'
+        : entry.status === 'FAILED' ? 'var(--cta-red)'
+        : 'var(--ink-3)';
+      const routeName = entry.schedule?.favorite?.name ? ` — ${escapeHtml(entry.schedule.favorite.name)}` : '';
+      const detail = entry.detail ? `<div style="color: var(--ink-3); font-size: 0.75rem; margin-top: 2px;">${escapeHtml(entry.detail)}</div>` : '';
+      const kindTag = entry.kind === 'TEST' ? ' <span style="font-size:0.7rem; color: var(--ink-3);">(test)</span>' : '';
+      return `
+        <div style="padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+            <span style="color: ${statusColor}; font-weight: 600; font-size: 0.78rem;">${entry.status}</span>
+            <span style="color: var(--ink-3); font-size: 0.72rem;">${when}</span>
+          </div>
+          <div style="font-size: 0.82rem; color: var(--ink-2); margin-top: 2px;">${entry.channel.toLowerCase()}${routeName}${kindTag}</div>
+          ${detail}
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<p style="color: var(--cta-red); font-size: 0.85rem; margin: 0;">Failed to load: ${escapeHtml(e.message || 'unknown error')}</p>`;
+  }
 }
 
 function renderTelegramStatus() {
@@ -728,18 +819,22 @@ async function loadSchedules() {
       return;
     }
 
-    list.innerHTML = data.schedules.map(s => `
+    list.innerHTML = data.schedules.map(s => {
+      const leadLabel = s.leadMinutes > 0 ? ` · ${s.leadMinutes}m early` : '';
+      const channelLabel = s.channel && s.channel !== 'AUTO' ? ` · ${s.channel.toLowerCase()}` : '';
+      return `
       <div class="alert-row">
         <div class="alert-info">
           <h4>${escapeHtml(s.favorite.name)}</h4>
-          <div class="alert-meta">${formatTime(s.time)} · ${formatDays(s.daysOfWeek)}</div>
+          <div class="alert-meta">${formatTime(s.time)} · ${formatDays(s.daysOfWeek)}${leadLabel}${channelLabel}</div>
         </div>
         <div class="flex items-center gap-4">
+          <button class="icon-btn test-btn" data-id="${s.id}" title="Send test now" aria-label="Send test now" style="font-size: 0.9rem;">▶</button>
           <button class="icon-btn delete-btn" data-id="${s.id}" title="Delete alert" aria-label="Delete alert">×</button>
           <div class="pill-toggle ${s.enabled ? 'active' : ''}" data-id="${s.id}" role="switch" aria-checked="${s.enabled}"></div>
         </div>
       </div>
-    `).join('');
+    `;}).join('');
     updateNextTrip(data.schedules);
   } catch (e) { console.error(e); }
 }
@@ -998,9 +1093,51 @@ async function handleCreateFavorite(e) {
   }
 }
 async function handleCreateSchedule(e) {
-  e.preventDefault(); const form = e.target; const days = Array.from(form.elements['day']).filter(c => c.checked).map(c => parseInt(c.value));
-  const p = { favoriteId: form.elements['schedule-favorite'].value, time: form.elements['schedule-time'].value, daysOfWeek: days };
-  try { await apiCall('/api/schedules', { method: 'POST', body: JSON.stringify(p) }); closeModal('schedule-modal'); form.reset(); await loadSchedules(); } catch (e) { alert(e.message); }
+  e.preventDefault();
+  const form = e.target;
+  const days = Array.from(form.elements['day']).filter(c => c.checked).map(c => parseInt(c.value));
+  if (days.length === 0) {
+    alert('Pick at least one day of the week.');
+    return;
+  }
+  const leadMinutes = parseInt(document.getElementById('schedule-lead').value, 10) || 0;
+  const channel = document.getElementById('schedule-channel').value || 'AUTO';
+  const p = {
+    favoriteId: document.getElementById('schedule-favorite').value,
+    time: document.getElementById('schedule-time').value,
+    daysOfWeek: days,
+    leadMinutes,
+    channel,
+  };
+  try {
+    const res = await apiCall('/api/schedules', { method: 'POST', body: JSON.stringify(p) });
+    closeModal('schedule-modal');
+    form.reset();
+    await loadSchedules();
+    if (res?.emailAutoEnabled) {
+      // Refresh local user snapshot so the Profile toggle reflects reality.
+      await loadCurrentUser();
+      alert('Email notifications turned on so you actually receive this alert. You can change this in Profile → General.');
+    }
+  } catch (e) { alert(e.message); }
+}
+
+async function testSchedule(id, btn) {
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    await apiCall(`/api/schedules/${id}/test`, { method: 'POST' });
+    btn.textContent = '✓';
+    setTimeout(() => {
+      btn.textContent = originalLabel;
+      btn.disabled = false;
+    }, 1500);
+  } catch (e) {
+    btn.textContent = originalLabel;
+    btn.disabled = false;
+    alert(e.message || 'Failed to queue test notification');
+  }
 }
 async function toggleSchedule(id, enabled) {
   // Optimistic UI update

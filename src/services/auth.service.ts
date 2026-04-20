@@ -20,6 +20,7 @@ function publicUser(user: {
   name: string | null;
   telegramChatId: string | null;
   emailNotifications: boolean;
+  notificationsPausedUntil: Date | null;
   createdAt: Date;
 }) {
   return {
@@ -28,6 +29,9 @@ function publicUser(user: {
     name: user.name,
     telegramLinked: Boolean(user.telegramChatId),
     emailNotifications: user.emailNotifications,
+    notificationsPausedUntil: user.notificationsPausedUntil
+      ? user.notificationsPausedUntil.toISOString()
+      : null,
     createdAt: user.createdAt,
   };
 }
@@ -112,12 +116,26 @@ export class AuthService {
 
   static async updateProfile(
     userId: string,
-    data: { name?: string; email?: string; emailNotifications?: boolean }
+    data: {
+      name?: string;
+      email?: string;
+      emailNotifications?: boolean;
+      notificationsPausedUntil?: string | null;
+    }
   ) {
     const update: Record<string, unknown> = {};
 
     if (typeof data.name === 'string') update.name = data.name.trim() || null;
     if (typeof data.emailNotifications === 'boolean') update.emailNotifications = data.emailNotifications;
+    if (data.notificationsPausedUntil !== undefined) {
+      if (data.notificationsPausedUntil === null || data.notificationsPausedUntil === '') {
+        update.notificationsPausedUntil = null;
+      } else {
+        const parsed = new Date(data.notificationsPausedUntil);
+        if (Number.isNaN(parsed.getTime())) throw new Error('Invalid pause timestamp');
+        update.notificationsPausedUntil = parsed;
+      }
+    }
     if (typeof data.email === 'string') {
       const normalized = normalizeEmail(data.email);
       if (normalized) {

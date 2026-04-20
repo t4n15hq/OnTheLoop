@@ -77,10 +77,15 @@ export class AuthController {
         return;
       }
 
-      const { name, email, emailNotifications } = req.body;
+      const { name, email, emailNotifications, notificationsPausedUntil } = req.body;
       const userId = req.user!.userId;
 
-      const user = await AuthService.updateProfile(userId, { name, email, emailNotifications });
+      const user = await AuthService.updateProfile(userId, {
+        name,
+        email,
+        emailNotifications,
+        notificationsPausedUntil,
+      });
       res.status(200).json({ message: 'Profile updated successfully', user });
     } catch (error: any) {
       logger.error('Update profile error:', error);
@@ -150,4 +155,14 @@ export const profileUpdateValidation = [
   body('name').optional({ nullable: true }).trim(),
   body('email').optional().trim().isEmail().withMessage('Invalid email address'),
   body('emailNotifications').optional().isBoolean(),
+  // Accept either a valid ISO-8601 timestamp to pause until, or null/empty to resume.
+  body('notificationsPausedUntil')
+    .optional({ nullable: true, checkFalsy: false })
+    .custom((value) => {
+      if (value === null || value === '') return true;
+      if (typeof value !== 'string') throw new Error('must be a string or null');
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) throw new Error('must be an ISO-8601 timestamp');
+      return true;
+    }),
 ];

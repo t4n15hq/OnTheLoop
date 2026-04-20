@@ -8,6 +8,7 @@ interface Config {
   publicUrl: string;
   databaseUrl: string;
   redis: {
+    url?: string;
     host: string;
     port: number;
     password?: string;
@@ -39,6 +40,13 @@ interface Config {
   cache: {
     ttl: number;
   };
+  // IANA zone that schedules' HH:mm values are interpreted in.
+  // Defaults to Chicago so the app behaves correctly regardless of host TZ.
+  scheduleTimezone: string;
+  // When true (default), the Express process also runs the BullMQ worker
+  // so a single-process deployment ("npm start") delivers end-to-end.
+  // Set to "false" if you run a dedicated worker container.
+  runWorkerInProcess: boolean;
 }
 
 const config: Config = {
@@ -47,6 +55,7 @@ const config: Config = {
   publicUrl: process.env.PUBLIC_URL || 'http://localhost:3000',
   databaseUrl: process.env.DATABASE_URL || '',
   redis: {
+    url: process.env.REDIS_URL,
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT || '6379', 10),
     password: process.env.REDIS_PASSWORD,
@@ -60,7 +69,9 @@ const config: Config = {
     busApiKey: process.env.CTA_BUS_API_KEY || '',
   },
   google: {
-    geminiApiKey: process.env.GOOGLE_GEMINI_API_KEY || '',
+    // Accept either name: historical code uses GOOGLE_GEMINI_API_KEY,
+    // but docker-compose and many deploy scripts pass GEMINI_API_KEY.
+    geminiApiKey: process.env.GOOGLE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '',
   },
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN || '',
@@ -78,6 +89,8 @@ const config: Config = {
   cache: {
     ttl: parseInt(process.env.CACHE_TTL || '60', 10),
   },
+  scheduleTimezone: process.env.SCHEDULE_TIMEZONE || 'America/Chicago',
+  runWorkerInProcess: process.env.RUN_WORKER_IN_PROCESS !== 'false',
 };
 
 export default config;

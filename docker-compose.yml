@@ -13,18 +13,37 @@ services:
       - REDIS_URL=redis://redis:6379
       - NODE_ENV=production
       - TZ=America/Chicago
+      - SCHEDULE_TIMEZONE=America/Chicago
+      # With the default single-container layout, the Express process also
+      # runs the BullMQ worker. Set to false if you scale out the `worker`
+      # service below.
+      - RUN_WORKER_IN_PROCESS=${RUN_WORKER_IN_PROCESS:-true}
       # Secrets passed from .env file
       - CTA_TRAIN_API_KEY=${CTA_TRAIN_API_KEY}
       - CTA_BUS_API_KEY=${CTA_BUS_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GOOGLE_GEMINI_API_KEY=${GOOGLE_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
       - JWT_SECRET=${JWT_SECRET}
+      # Telegram bot
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME:-}
+      - TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET:-}
+      # Email (required for email notifications)
+      - EMAIL_USER=${EMAIL_USER:-}
+      - EMAIL_PASS=${EMAIL_PASS:-}
+      - EMAIL_HOST=${EMAIL_HOST:-}
+      - EMAIL_PORT=${EMAIL_PORT:-}
+      - EMAIL_FROM=${EMAIL_FROM:-}
+      - EMAIL_FROM_NAME=${EMAIL_FROM_NAME:-}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
 
+  # Optional: only needed when scaling out. Start with:
+  #   RUN_WORKER_IN_PROCESS=false docker compose --profile worker up
   worker:
+    profiles: ['worker']
     build: .
     container_name: cta-track-worker
     restart: always
@@ -34,10 +53,20 @@ services:
       - REDIS_URL=redis://redis:6379
       - NODE_ENV=production
       - TZ=America/Chicago
+      - SCHEDULE_TIMEZONE=America/Chicago
       - CTA_TRAIN_API_KEY=${CTA_TRAIN_API_KEY}
       - CTA_BUS_API_KEY=${CTA_BUS_API_KEY}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GOOGLE_GEMINI_API_KEY=${GOOGLE_GEMINI_API_KEY:-${GEMINI_API_KEY:-}}
       - JWT_SECRET=${JWT_SECRET}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME:-}
+      - TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET:-}
+      - EMAIL_USER=${EMAIL_USER:-}
+      - EMAIL_PASS=${EMAIL_PASS:-}
+      - EMAIL_HOST=${EMAIL_HOST:-}
+      - EMAIL_PORT=${EMAIL_PORT:-}
+      - EMAIL_FROM=${EMAIL_FROM:-}
+      - EMAIL_FROM_NAME=${EMAIL_FROM_NAME:-}
     depends_on:
       postgres:
         condition: service_healthy

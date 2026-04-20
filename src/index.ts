@@ -4,7 +4,8 @@ import helmet from 'helmet';
 import path from 'path';
 import config from './config';
 import logger from './utils/logger';
-import { startScheduler } from './services/scheduler.service';
+import { startScheduler, stopScheduler } from './services/scheduler.service';
+import { createNotificationWorker } from './jobs/notification.job';
 
 // Import routes
 import authRoutes from './routes/auth.routes';
@@ -62,24 +63,35 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // Start server
 const PORT = config.port;
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   logger.info(`CTA Track API server started on port ${PORT}`);
   logger.info(`Environment: ${config.nodeEnv}`);
+  logger.info(`Schedule timezone: ${config.scheduleTimezone}`);
 
-  // Start the notification scheduler
   startScheduler();
-  logger.info('Notification scheduler started');
+
+  // By default, run the BullMQ worker inside the API process so that a
+  // single-process deploy ("npm start") actually delivers notifications.
+  // Set RUN_WORKER_IN_PROCESS=false when scaling out with a dedicated
+  // worker container (e.g. `npm run worker`) to avoid double-processing.
+  if (config.runWorkerInProcess) {
+    createNotificationWorker();
+    logger.info('Notification worker running in-process');
+  } else {
+    logger.info('RUN_WORKER_IN_PROCESS=false — expecting a separate worker process');
+  }
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  process.exit(0);
-});
+async function shutdown(signal: string) {
+  logger.info(`${signal} received, shutting down gracefully`);
+  stopScheduler();
+  server.close(() => process.exit(0));
+  // Hard-exit fallback if close hangs.
+  setTimeout(() => process.exit(0), 10_000).unref();
+}
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  process.exit(0);
-});
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 export default app;

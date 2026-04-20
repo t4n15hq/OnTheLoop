@@ -3,6 +3,7 @@ import { CTALookupService } from '../services/cta-lookup.service';
 import { GeminiMapsService } from '../services/gemini-maps.service';
 import { CTAService } from '../services/cta.service';
 import { AISMSService } from '../services/ai-sms.service';
+import { AlertsService } from '../services/alerts.service';
 import { AuthRequest } from '../middleware/auth.middleware';
 import logger from '../utils/logger';
 import prisma from '../utils/db';
@@ -635,6 +636,31 @@ export class CTAController {
       res.status(200).json({ config });
     } catch (error: any) {
       logger.error('Parse route config error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  /**
+   * Current CTA service alerts. If the caller is authenticated, filter to
+   * alerts impacting their saved routes (plus system-wide major alerts);
+   * otherwise return all major system-wide alerts.
+   */
+  static async getAlerts(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      if (req.user) {
+        const favorites = await prisma.favorite.findMany({
+          where: { userId: req.user.userId },
+          select: { routeId: true, routeType: true },
+        });
+        const alerts = await AlertsService.getForRoutes(favorites);
+        res.status(200).json({ alerts });
+        return;
+      }
+
+      const all = await AlertsService.getAllActive();
+      res.status(200).json({ alerts: all.filter((a) => a.majorAlert) });
+    } catch (error: any) {
+      logger.error('Get alerts error:', error);
       res.status(500).json({ error: error.message });
     }
   }

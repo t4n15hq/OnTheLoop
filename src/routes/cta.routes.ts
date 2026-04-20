@@ -75,4 +75,11 @@ router.get('/arrivals', CTAController.getArrivals);
  */
 router.post('/parse-route', CTAController.parseRouteConfig);
 
+/**
+ * GET /api/cta/alerts
+ * Current CTA service alerts. Authenticated callers get alerts filtered to
+ * their saved routes; anonymous callers see all major system-wide alerts.
+ */
+router.get('/alerts', optionalAuthMiddleware, CTAController.getAlerts);
+
 export default router;

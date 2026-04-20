@@ -1,0 +1,26 @@
+{
+  "name": "On the Loop",
+  "short_name": "Loop",
+  "description": "Live Chicago CTA train and bus arrivals, with scheduled pings.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0C0C0A",
+  "theme_color": "#0C0C0A",
+  "categories": ["travel", "navigation", "utilities"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='44' fill='%230B0B09'/%3E%3Ctext x='96' y='132' font-family='Georgia,serif' font-style='italic' font-weight='500' font-size='104' fill='%23F5F3EC' text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='120' fill='%230B0B09'/%3E%3Ctext x='256' y='356' font-family='Georgia,serif' font-style='italic' font-weight='500' font-size='280' fill='%23F5F3EC' text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

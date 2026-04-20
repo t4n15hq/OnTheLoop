@@ -41,10 +41,23 @@ document.addEventListener('DOMContentLoaded', () => {
   applyRoute();
   setupEventListeners();
   startLandingClock();
+  registerServiceWorker();
 
   // React to back/forward or anchor navigation
   window.addEventListener('hashchange', applyRoute);
 });
+
+function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  // Only register over HTTPS or on localhost; browsers reject it otherwise.
+  const secure = window.isSecureContext || location.hostname === 'localhost';
+  if (!secure) return;
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((err) => {
+      console.warn('Service worker registration failed:', err);
+    });
+  });
+}
 
 function startLandingClock() {
   const tickerEl = document.getElementById('lv-ticker-time');
@@ -230,6 +243,8 @@ function setupEventListeners() {
   });
   document.getElementById('pause-resume-btn')?.addEventListener('click', resumeNotifications);
   document.getElementById('refresh-log-btn')?.addEventListener('click', loadDeliveryLog);
+  document.getElementById('save-quiet-hours-btn')?.addEventListener('click', saveQuietHours);
+  document.getElementById('clear-quiet-hours-btn')?.addEventListener('click', clearQuietHours);
 }
 
 /* ================= THEME ================= */
@@ -270,6 +285,62 @@ function loadProfile() {
 
   renderTelegramStatus();
   renderPauseStatus();
+  renderQuietHours();
+}
+
+function renderQuietHours() {
+  const startEl = document.getElementById('quiet-hours-start');
+  const endEl = document.getElementById('quiet-hours-end');
+  if (!startEl || !endEl) return;
+  startEl.value = currentUser?.quietHoursStart || '';
+  endEl.value = currentUser?.quietHoursEnd || '';
+}
+
+function showQuietHoursMsg(text, ok) {
+  const msg = document.getElementById('quiet-hours-msg');
+  if (!msg) return;
+  msg.textContent = text;
+  msg.style.display = 'block';
+  msg.style.background = ok ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)';
+  msg.style.color = ok ? 'var(--cta-green)' : 'var(--cta-red)';
+  setTimeout(() => { msg.style.display = 'none'; }, 2800);
+}
+
+async function saveQuietHours() {
+  const start = document.getElementById('quiet-hours-start')?.value || '';
+  const end = document.getElementById('quiet-hours-end')?.value || '';
+  if ((start && !end) || (!start && end)) {
+    showQuietHoursMsg('Set both start and end, or leave both blank.', false);
+    return;
+  }
+  try {
+    const res = await apiCall('/api/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify({
+        quietHoursStart: start || null,
+        quietHoursEnd: end || null,
+      }),
+    });
+    currentUser = { ...currentUser, ...res.user };
+    renderQuietHours();
+    showQuietHoursMsg(start && end ? `Quiet hours saved: ${start}–${end}.` : 'Quiet hours disabled.', true);
+  } catch (e) {
+    showQuietHoursMsg(e.message || 'Failed to save quiet hours', false);
+  }
+}
+
+async function clearQuietHours() {
+  try {
+    const res = await apiCall('/api/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify({ quietHoursStart: null, quietHoursEnd: null }),
+    });
+    currentUser = { ...currentUser, ...res.user };
+    renderQuietHours();
+    showQuietHoursMsg('Quiet hours disabled.', true);
+  } catch (e) {
+    showQuietHoursMsg(e.message || 'Failed to clear quiet hours', false);
+  }
 }
 
 function renderPauseStatus() {
@@ -635,7 +706,105 @@ function updateWelcomeMessage() {
 }
 async function loadDashboardData() {
   startWelcomeClock();
-  await Promise.all([loadFavorites(), loadSchedules()]);
+  await Promise.all([loadFavorites(), loadSchedules(), loadServiceAlerts()]);
+  startServiceAlertsPolling();
+}
+
+/* ================= SERVICE ALERTS ================= */
+let serviceAlertsInterval = null;
+
+async function loadServiceAlerts() {
+  const container = document.getElementById('service-alerts');
+  if (!container) return;
+  try {
+    const data = await apiCall('/api/cta/alerts');
+    renderServiceAlerts(data.alerts || []);
+  } catch (e) {
+    // Silent: a stale CTA feed shouldn't break the dashboard.
+    console.warn('Alerts fetch failed:', e.message);
+  }
+}
+
+function startServiceAlertsPolling() {
+  if (serviceAlertsInterval) return;
+  serviceAlertsInterval = setInterval(loadServiceAlerts, 3 * 60 * 1000);
+}
+
+function renderServiceAlerts(alerts) {
+  const container = document.getElementById('service-alerts');
+  if (!container) return;
+
+  if (!alerts.length) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+
+  // Stable, compact state: remember which alerts the user dismissed this session.
+  const dismissed = new Set(JSON.parse(sessionStorage.getItem('dismissedAlerts') || '[]'));
+  const visible = alerts.filter((a) => !dismissed.has(a.id));
+  if (!visible.length) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    return;
+  }
+
+  const majorCount = visible.filter((a) => a.majorAlert).length;
+  const tone = majorCount > 0 ? 'major' : 'minor';
+  const summaryIcon = majorCount > 0 ? '⚠' : 'ⓘ';
+  const summaryText =
+    visible.length === 1
+      ? '1 service alert'
+      : `${visible.length} service alerts`;
+
+  container.classList.remove('hidden');
+  container.dataset.tone = tone;
+  container.innerHTML = `
+    <details class="service-alerts-details" ${majorCount > 0 ? 'open' : ''}>
+      <summary class="service-alerts-summary">
+        <span class="service-alerts-icon">${summaryIcon}</span>
+        <span class="service-alerts-title">${summaryText} affecting your routes</span>
+        <span class="service-alerts-chevron" aria-hidden="true">▾</span>
+      </summary>
+      <div class="service-alerts-body">
+        ${visible
+          .slice(0, 6)
+          .map(
+            (a) => `
+            <article class="service-alert" data-id="${escapeAttr(a.id)}">
+              <header class="service-alert-head">
+                <span class="service-alert-headline">${escapeHtml(a.headline || 'Service alert')}</span>
+                <button class="service-alert-dismiss icon-btn" data-dismiss="${escapeAttr(a.id)}" title="Dismiss" aria-label="Dismiss">×</button>
+              </header>
+              ${a.shortDescription ? `<p class="service-alert-body">${escapeHtml(a.shortDescription)}</p>` : ''}
+              <div class="service-alert-meta">
+                ${a.services
+                  .map((s) => `<span class="service-alert-chip">${escapeHtml(s.name || s.id)}</span>`)
+                  .join('')}
+                ${a.url ? `<a href="${escapeAttr(a.url)}" target="_blank" rel="noopener" class="service-alert-link">Details →</a>` : ''}
+              </div>
+            </article>
+          `
+          )
+          .join('')}
+      </div>
+    </details>
+  `;
+
+  container.querySelectorAll('[data-dismiss]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const id = btn.dataset.dismiss;
+      dismissed.add(id);
+      sessionStorage.setItem('dismissedAlerts', JSON.stringify([...dismissed]));
+      renderServiceAlerts(alerts);
+    });
+  });
+}
+
+function escapeAttr(s) {
+  return String(s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
 /* ================= WELCOME HERO (live clock + greeting) ================= */

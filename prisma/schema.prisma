@@ -20,6 +20,11 @@ model User {
   emailNotifications       Boolean      @default(false)
   // Global mute: while in the future, all scheduled deliveries are skipped.
   notificationsPausedUntil DateTime?
+  // Recurring quiet window in HH:mm (America/Chicago). If start > end the
+  // window wraps midnight (e.g. start=22:00, end=07:00). Both must be set
+  // for the window to be active; leave one null to disable.
+  quietHoursStart          String?
+  quietHoursEnd            String?
   createdAt                DateTime     @default(now())
   updatedAt                DateTime     @updatedAt
   favorites                Favorite[]

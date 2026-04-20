@@ -14,6 +14,18 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+const QUIET_HOUR_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+function normalizeQuietHour(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!QUIET_HOUR_RE.test(trimmed)) {
+    throw new Error('Quiet hours must be in HH:mm format');
+  }
+  return trimmed;
+}
+
 function publicUser(user: {
   id: string;
   email: string;
@@ -21,6 +33,8 @@ function publicUser(user: {
   telegramChatId: string | null;
   emailNotifications: boolean;
   notificationsPausedUntil: Date | null;
+  quietHoursStart: string | null;
+  quietHoursEnd: string | null;
   createdAt: Date;
 }) {
   return {
@@ -32,6 +46,8 @@ function publicUser(user: {
     notificationsPausedUntil: user.notificationsPausedUntil
       ? user.notificationsPausedUntil.toISOString()
       : null,
+    quietHoursStart: user.quietHoursStart,
+    quietHoursEnd: user.quietHoursEnd,
     createdAt: user.createdAt,
   };
 }
@@ -121,6 +137,8 @@ export class AuthService {
       email?: string;
       emailNotifications?: boolean;
       notificationsPausedUntil?: string | null;
+      quietHoursStart?: string | null;
+      quietHoursEnd?: string | null;
     }
   ) {
     const update: Record<string, unknown> = {};
@@ -135,6 +153,12 @@ export class AuthService {
         if (Number.isNaN(parsed.getTime())) throw new Error('Invalid pause timestamp');
         update.notificationsPausedUntil = parsed;
       }
+    }
+    if (data.quietHoursStart !== undefined) {
+      update.quietHoursStart = normalizeQuietHour(data.quietHoursStart);
+    }
+    if (data.quietHoursEnd !== undefined) {
+      update.quietHoursEnd = normalizeQuietHour(data.quietHoursEnd);
     }
     if (typeof data.email === 'string') {
       const normalized = normalizeEmail(data.email);

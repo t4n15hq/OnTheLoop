@@ -30,6 +30,7 @@
     href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230B0B09'/%3E%3Ctext x='32' y='44' font-family='Georgia,serif' font-style='italic' font-weight='500' font-size='34' fill='%23F5F3EC' text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E">
   <link rel="apple-touch-icon"
     href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%230B0B09'/%3E%3Ctext x='90' y='124' font-family='Georgia,serif' font-style='italic' font-weight='500' font-size='96' fill='%23F5F3EC' text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E">
+  <link rel="manifest" href="/manifest.webmanifest">
 </head>
 
 <body>
@@ -578,6 +579,9 @@
           </p>
         </div>
 
+        <!-- SERVICE ALERTS (CTA disruptions affecting saved routes) -->
+        <div id="service-alerts" class="service-alerts hidden" aria-live="polite"></div>
+
         <!-- HERO "Up Next" -->
         <div id="next-trip-card" class="card hero-ticket hidden">
           <div class="ticket-header">
@@ -731,6 +735,31 @@
           <button type="button" id="pause-resume-btn" class="text-btn hidden"
             style="background: transparent; border: 1px solid var(--border); color: var(--ink-2); padding: 10px 16px; border-radius: 10px; cursor: pointer; font-weight: 600; width: 100%;">
             Resume now
+          </button>
+        </div>
+
+        <h4 style="margin: 0 0 10px; color: var(--ink-3); text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.14em; font-weight: 700;">
+          Quiet hours
+        </h4>
+        <p style="margin: 0 0 10px; color: var(--ink-3); font-size: 0.82rem;">
+          Pings falling inside this window are skipped. Leave blank to disable. Wraps past midnight if end is earlier than start.
+        </p>
+        <div style="display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-bottom: 8px;">
+          <label style="flex: 1; min-width: 120px; font-size: 0.8rem; color: var(--ink-2);">
+            Start
+            <input type="time" id="quiet-hours-start" class="form-input" style="margin-top: 4px;" />
+          </label>
+          <label style="flex: 1; min-width: 120px; font-size: 0.8rem; color: var(--ink-2);">
+            End
+            <input type="time" id="quiet-hours-end" class="form-input" style="margin-top: 4px;" />
+          </label>
+        </div>
+        <div id="quiet-hours-msg" style="display: none; padding: 8px; border-radius: 6px; font-size: 0.82rem; margin-bottom: 10px;"></div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 22px;">
+          <button type="button" id="save-quiet-hours-btn" class="btn-shimmer" style="flex: 1; min-width: 0;">Save</button>
+          <button type="button" id="clear-quiet-hours-btn" class="text-btn"
+            style="background: transparent; border: 1px solid var(--border); color: var(--ink-2); padding: 10px 16px; border-radius: 10px; cursor: pointer; font-weight: 600;">
+            Disable
           </button>
         </div>
 

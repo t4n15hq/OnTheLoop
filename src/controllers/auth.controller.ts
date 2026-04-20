@@ -77,7 +77,14 @@ export class AuthController {
         return;
       }
 
-      const { name, email, emailNotifications, notificationsPausedUntil } = req.body;
+      const {
+        name,
+        email,
+        emailNotifications,
+        notificationsPausedUntil,
+        quietHoursStart,
+        quietHoursEnd,
+      } = req.body;
       const userId = req.user!.userId;
 
       const user = await AuthService.updateProfile(userId, {
@@ -85,6 +92,8 @@ export class AuthController {
         email,
         emailNotifications,
         notificationsPausedUntil,
+        quietHoursStart,
+        quietHoursEnd,
       });
       res.status(200).json({ message: 'Profile updated successfully', user });
     } catch (error: any) {
@@ -163,6 +172,24 @@ export const profileUpdateValidation = [
       if (typeof value !== 'string') throw new Error('must be a string or null');
       const d = new Date(value);
       if (Number.isNaN(d.getTime())) throw new Error('must be an ISO-8601 timestamp');
+      return true;
+    }),
+  body('quietHoursStart')
+    .optional({ nullable: true, checkFalsy: false })
+    .custom((value) => {
+      if (value === null || value === '') return true;
+      if (typeof value !== 'string' || !/^([01]\d|2[0-3]):([0-5]\d)$/.test(value)) {
+        throw new Error('must be HH:mm (24-hour) or null');
+      }
+      return true;
+    }),
+  body('quietHoursEnd')
+    .optional({ nullable: true, checkFalsy: false })
+    .custom((value) => {
+      if (value === null || value === '') return true;
+      if (typeof value !== 'string' || !/^([01]\d|2[0-3]):([0-5]\d)$/.test(value)) {
+        throw new Error('must be HH:mm (24-hour) or null');
+      }
       return true;
     }),
 ];

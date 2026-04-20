@@ -6,17 +6,19 @@ const LINE_COLORS = {
   'Pink': 'var(--cta-pink)', 'Yellow': 'var(--cta-yellow)', 'BUS': 'var(--text-primary)'
 };
 
-// Hex values for gradients (since we can't easily get computed var values for gradients in inline styles without more work)
+// Authentic CTA line colors (transitchicago.com)
 const LINE_HEX = {
-  'Red': '#FF2E2E', 'Blue': '#2E9CFF', 'Brown': '#C98A68',
-  'Green': '#00FF66', 'Orange': '#FF7B2E', 'Purple': '#B92EFF',
-  'Pink': '#FF2E93', 'Yellow': '#FFE600', 'BUS': '#EDEDED'
+  'Red': '#C60C30', 'Blue': '#00A1DE', 'Brown': '#62361B',
+  'Green': '#009B3A', 'Orange': '#F9461C', 'Purple': '#522398',
+  'Pink': '#E27EA6', 'Yellow': '#F9E300', 'BUS': '#337EA9'
 };
 
 let authToken = localStorage.getItem('authToken');
 let currentUser = null;
+let cachedFavorites = [];
 
 /* ================= DOM ================= */
+const landingView = document.getElementById('landing-view');
 const authView = document.getElementById('auth-view');
 const dashboardView = document.getElementById('dashboard-view');
 const authForm = document.getElementById('auth-form');
@@ -32,19 +34,57 @@ const changePasswordForm = document.getElementById('change-password-form');
 
 /* ================= INIT ================= */
 document.addEventListener('DOMContentLoaded', () => {
-  const savedTheme = localStorage.getItem('theme') || 'dark';
+  const savedTheme = localStorage.getItem('theme') || 'light';
   document.documentElement.setAttribute('data-theme', savedTheme);
   updateThemeIcons(savedTheme);
 
-  if (authToken) showDashboard(); else showAuth();
+  applyRoute();
   setupEventListeners();
+  startLandingClock();
+
+  // React to back/forward or anchor navigation
+  window.addEventListener('hashchange', applyRoute);
 });
+
+function startLandingClock() {
+  const tickerEl = document.getElementById('lv-ticker-time');
+  const boardEl = document.getElementById('lv-board-time');
+  if (!tickerEl && !boardEl) return;
+  const tick = () => {
+    const now = new Date();
+    const h = now.getHours();
+    const m = now.getMinutes();
+    const hh24 = String(h).padStart(2, '0');
+    const mm = String(m).padStart(2, '0');
+    const hh12 = ((h % 12) || 12);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    if (tickerEl) tickerEl.textContent = `${hh24}:${mm}`;
+    if (boardEl) boardEl.textContent = `${hh12}:${mm} ${ampm}`;
+  };
+  tick();
+  setInterval(tick, 1000);
+}
 
 function setupEventListeners() {
   themeToggleBtn.addEventListener('click', toggleTheme);
+  document.getElementById('landing-theme-toggle')?.addEventListener('click', toggleTheme);
   authForm.addEventListener('submit', handleAuthSubmit);
   authToggleBtn.addEventListener('click', handleAuthToggle);
   logoutBtn.addEventListener('click', handleLogout);
+
+  // Landing footer → open legal modals
+  document.querySelectorAll('[data-open-modal]').forEach((btn) => {
+    btn.addEventListener('click', () => openModal(btn.dataset.openModal));
+  });
+
+  // Backdrop click closes any open modal
+  document.getElementById('modal-backdrop')?.addEventListener('click', () => {
+    document.querySelectorAll('.modal.show, .modal:not(.hidden)').forEach((m) => {
+      m.classList.add('hidden');
+      m.classList.remove('show');
+    });
+    document.getElementById('modal-backdrop').classList.add('hidden');
+  });
 
   profileBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -73,6 +113,8 @@ function setupEventListeners() {
 
   changePasswordForm.addEventListener('submit', handleChangePassword);
   document.getElementById('profile-update-form').addEventListener('submit', handleProfileUpdate);
+  document.getElementById('link-telegram-btn')?.addEventListener('click', handleLinkTelegram);
+  document.getElementById('unlink-telegram-btn')?.addEventListener('click', handleUnlinkTelegram);
 
   userMenuBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -86,6 +128,36 @@ function setupEventListeners() {
   document.getElementById('chat-form').addEventListener('submit', handleChatMessage);
   document.getElementById('clear-terminal-btn').addEventListener('click', () => {
     document.getElementById('chat-messages').innerHTML = '<div class="chat-bubble bot">System ready. Awaiting input...</div>';
+  });
+
+  // Quick-ask chips: click → fill input → submit the form for you.
+  document.querySelectorAll('#quick-asks .quick-chip').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const q = chip.dataset.q;
+      if (!q) return;
+      const input = document.getElementById('chat-input');
+      input.value = q;
+      input.focus();
+      document.getElementById('chat-form').requestSubmit();
+    });
+  });
+
+  // Smart route-suggest: as the user types, fuzzy-match against saved routes
+  // and surface a single suggestion chip.
+  const chatInputEl = document.getElementById('chat-input');
+  if (chatInputEl) {
+    chatInputEl.addEventListener('input', updateRouteSuggestion);
+    chatInputEl.addEventListener('focus', updateRouteSuggestion);
+    chatInputEl.addEventListener('blur', () => setTimeout(hideRouteSuggestion, 120));
+  }
+
+  // Keyboard shortcut: `/` focuses the chat input (unless already typing).
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== '/') return;
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return;
+    const input = document.getElementById('chat-input');
+    if (input) { e.preventDefault(); input.focus(); }
   });
   document.getElementById('add-favorite-btn').addEventListener('click', () => openModal('favorite-modal'));
   document.getElementById('add-schedule-btn').addEventListener('click', () => openModal('schedule-modal'));
@@ -156,29 +228,81 @@ function toggleTheme() {
   updateThemeIcons(next);
 }
 function updateThemeIcons(theme) {
-  document.querySelector('.sun').style.display = theme === 'dark' ? 'inline' : 'none';
-  document.querySelector('.moon').style.display = theme === 'dark' ? 'none' : 'inline';
+  document.querySelectorAll('.sun').forEach((el) => {
+    el.style.display = theme === 'dark' ? 'inline' : 'none';
+  });
+  document.querySelectorAll('.moon').forEach((el) => {
+    el.style.display = theme === 'dark' ? 'none' : 'inline';
+  });
 }
 
 function loadProfile() {
   if (!currentUser) return;
-  document.getElementById('profile-phone-display').textContent = currentUser.phoneNumber;
+  document.getElementById('profile-email-display').textContent = currentUser.email;
 
-  // Populate form fields
   document.getElementById('profile-name').value = currentUser.name || '';
   document.getElementById('profile-email').value = currentUser.email || '';
+  document.getElementById('profile-email-notifications').checked = Boolean(currentUser.emailNotifications);
 
-  // Fix date parsing
   try {
     const date = new Date(currentUser.createdAt);
     if (!isNaN(date.getTime())) {
       document.getElementById('profile-joined-display').textContent = `Member since ${date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}`;
     } else {
-      document.getElementById('profile-joined-display').textContent = 'Member since 2024';
+      document.getElementById('profile-joined-display').textContent = '';
     }
   } catch (e) {
-    console.error('Date parsing error:', e);
-    document.getElementById('profile-joined-display').textContent = 'Member since 2024';
+    document.getElementById('profile-joined-display').textContent = '';
+  }
+
+  renderTelegramStatus();
+}
+
+function renderTelegramStatus() {
+  const status = document.getElementById('telegram-status');
+  const linkBtn = document.getElementById('link-telegram-btn');
+  const unlinkBtn = document.getElementById('unlink-telegram-btn');
+  if (!status || !linkBtn || !unlinkBtn) return;
+
+  if (currentUser?.telegramLinked) {
+    status.textContent = 'Linked. You\'ll receive scheduled alerts on Telegram.';
+    linkBtn.textContent = 'Re-link Telegram';
+    unlinkBtn.classList.remove('hidden');
+  } else {
+    status.textContent = 'Not linked yet. Link to receive alerts and chat with the bot.';
+    linkBtn.textContent = 'Link Telegram';
+    unlinkBtn.classList.add('hidden');
+  }
+}
+
+async function handleLinkTelegram() {
+  const btn = document.getElementById('link-telegram-btn');
+  const original = btn.textContent;
+  btn.textContent = 'Generating…';
+  btn.disabled = true;
+  try {
+    const res = await apiCall('/api/auth/telegram/link', { method: 'POST' });
+    if (res.deepLink) {
+      window.open(res.deepLink, '_blank', 'noopener');
+    } else {
+      alert(`Send this to the bot:\n\n/start ${res.token}`);
+    }
+  } catch (e) {
+    alert(e.message || 'Failed to generate link');
+  } finally {
+    btn.textContent = original;
+    btn.disabled = false;
+  }
+}
+
+async function handleUnlinkTelegram() {
+  if (!confirm('Disconnect Telegram from this account?')) return;
+  try {
+    await apiCall('/api/auth/telegram/link', { method: 'DELETE' });
+    currentUser = { ...currentUser, telegramLinked: false };
+    renderTelegramStatus();
+  } catch (e) {
+    alert(e.message || 'Failed to unlink');
   }
 }
 
@@ -186,6 +310,7 @@ async function handleProfileUpdate(e) {
   e.preventDefault();
   const name = document.getElementById('profile-name').value;
   const email = document.getElementById('profile-email').value;
+  const emailNotifications = document.getElementById('profile-email-notifications').checked;
   const msgEl = document.getElementById('profile-msg');
   const btn = e.target.querySelector('button');
 
@@ -196,7 +321,7 @@ async function handleProfileUpdate(e) {
   try {
     const response = await apiCall('/api/auth/profile', {
       method: 'PUT',
-      body: JSON.stringify({ name, email })
+      body: JSON.stringify({ name, email, emailNotifications })
     });
 
     // Update local user data
@@ -287,36 +412,22 @@ let isRegistering = false;
 
 function handleAuthToggle(e) {
   e.preventDefault();
-  isRegistering = !isRegistering;
-
-  const subtitle = document.getElementById('auth-subtitle');
-  const submitBtn = document.getElementById('auth-submit-btn');
-  const toggleBtn = document.getElementById('auth-toggle-btn');
-  const passwordInput = document.getElementById('auth-password');
-
-  if (isRegistering) {
-    subtitle.textContent = 'CREATE ACCOUNT';
-    submitBtn.textContent = 'Register';
-    toggleBtn.textContent = 'Already have an account? Login';
-    passwordInput.autocomplete = 'new-password';
-  } else {
-    subtitle.textContent = 'ENTER CREDENTIALS';
-    submitBtn.textContent = 'Login';
-    toggleBtn.textContent = 'Need an account? Register';
-    passwordInput.autocomplete = 'current-password';
+  setAuthMode(!isRegistering);
+  // Keep URL in sync with the mode toggle (doesn't re-trigger routing for auth→auth)
+  const newHash = isRegistering ? '#register' : '#login';
+  if (location.hash !== newHash) {
+    history.replaceState(null, '', newHash);
   }
-
-  authError.style.display = 'none';
 }
 
 async function handleAuthSubmit(e) {
   e.preventDefault();
-  const phoneNumber = document.getElementById('auth-phone').value;
+  const email = document.getElementById('auth-email').value.trim();
   const password = document.getElementById('auth-password').value;
+  const name = document.getElementById('auth-name')?.value?.trim();
   const endpoint = isRegistering ? '/api/auth/register' : '/api/auth/login';
 
-  // Basic validation
-  if (!phoneNumber || !password) {
+  if (!email || !password) {
     authError.textContent = 'Please fill in all fields';
     authError.style.display = 'block';
     return;
@@ -334,9 +445,10 @@ async function handleAuthSubmit(e) {
   btn.disabled = true;
 
   try {
+    const payload = isRegistering ? { email, password, name } : { email, password };
     const data = await apiCall(endpoint, {
       method: 'POST',
-      body: JSON.stringify({ phoneNumber, password })
+      body: JSON.stringify(payload)
     });
 
     authToken = data.token;
@@ -351,23 +463,140 @@ async function handleAuthSubmit(e) {
     btn.disabled = false;
   }
 }
-function handleLogout() { authToken = null; localStorage.removeItem('authToken'); showAuth(); }
+function handleLogout() {
+  authToken = null;
+  currentUser = null;
+  localStorage.removeItem('authToken');
+  // Drop them on the sign-in screen so they can quickly log back in.
+  setAuthMode(false);
+  showAuth();
+  if (location.hash !== '#login') {
+    history.replaceState(null, '', '#login');
+  }
+}
+function showLanding() {
+  if (landingView) landingView.classList.remove('hidden');
+  authView.classList.add('hidden');
+  dashboardView.classList.add('hidden');
+}
 function showAuth() {
+  if (landingView) landingView.classList.add('hidden');
   authView.classList.remove('hidden');
   dashboardView.classList.add('hidden');
 }
 async function showDashboard() {
+  if (landingView) landingView.classList.add('hidden');
   authView.classList.add('hidden');
   dashboardView.classList.remove('hidden');
   if (!currentUser && authToken) await loadCurrentUser();
   updateWelcomeMessage();
   await loadDashboardData();
 }
+
+function applyRoute() {
+  const hash = (location.hash || '').replace(/^#/, '').toLowerCase();
+
+  if (authToken) {
+    showDashboard();
+    return;
+  }
+
+  if (hash === 'login' || hash === 'register') {
+    setAuthMode(hash === 'register');
+    showAuth();
+    return;
+  }
+
+  showLanding();
+}
+
+function setAuthMode(registerMode) {
+  if (isRegistering === registerMode) return;
+  isRegistering = registerMode;
+
+  const subtitle = document.getElementById('auth-subtitle');
+  const submitBtn = document.getElementById('auth-submit-btn');
+  const toggleBtn = document.getElementById('auth-toggle-btn');
+  const passwordInput = document.getElementById('auth-password');
+  const nameWrap = document.getElementById('auth-name-wrap');
+
+  if (isRegistering) {
+    subtitle.textContent = 'Create your account';
+    submitBtn.textContent = 'Register';
+    toggleBtn.textContent = 'Already have an account? Login';
+    passwordInput.autocomplete = 'new-password';
+    nameWrap?.classList.remove('hidden');
+  } else {
+    subtitle.textContent = 'Sign in to continue';
+    submitBtn.textContent = 'Sign In';
+    toggleBtn.textContent = 'Need an account? Register';
+    passwordInput.autocomplete = 'current-password';
+    nameWrap?.classList.add('hidden');
+  }
+  authError.style.display = 'none';
+}
 async function loadCurrentUser() { try { const data = await apiCall('/api/users/me'); currentUser = data.user; } catch (e) { handleLogout(); } }
 function updateWelcomeMessage() {
-  if (currentUser && currentUser.phoneNumber) document.getElementById('user-phone-display').textContent = currentUser.phoneNumber.slice(-4);
+  const el = document.getElementById('user-display');
+  if (!el || !currentUser) return;
+  const label = currentUser.name || currentUser.email || 'USER';
+  el.textContent = label.length > 16 ? label.slice(0, 14) + '…' : label;
 }
-async function loadDashboardData() { await Promise.all([loadFavorites(), loadSchedules()]); }
+async function loadDashboardData() {
+  startWelcomeClock();
+  await Promise.all([loadFavorites(), loadSchedules()]);
+}
+
+/* ================= WELCOME HERO (live clock + greeting) ================= */
+let welcomeClockInterval = null;
+
+function startWelcomeClock() {
+  renderWelcome();
+  if (welcomeClockInterval) clearInterval(welcomeClockInterval);
+  // Update every 20s — enough for the minute to tick without burning CPU.
+  welcomeClockInterval = setInterval(renderWelcome, 20_000);
+}
+
+function renderWelcome() {
+  const now = new Date();
+  const chicagoFmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit', hour12: true,
+  }).format(now);
+  // chicagoFmt: "9:42 PM"
+  const [time, meridiem] = chicagoFmt.split(' ');
+  const timeEl = document.getElementById('welcome-time');
+  const meridiemEl = document.getElementById('welcome-meridiem');
+  if (timeEl) timeEl.textContent = time;
+  if (meridiemEl) meridiemEl.textContent = meridiem;
+
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago', weekday: 'long',
+  }).format(now);
+  const weekdayEl = document.getElementById('welcome-weekday');
+  if (weekdayEl) weekdayEl.textContent = weekday;
+
+  const greetingEl = document.getElementById('welcome-greeting');
+  if (greetingEl) {
+    const hour = parseInt(
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Chicago', hour: 'numeric', hour12: false,
+      }).format(now),
+      10
+    );
+    const first = (currentUser?.name || currentUser?.email || '').split(/[\s@]/)[0];
+    const greet = hour < 5 ? 'Still up' : hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+    greetingEl.textContent = first ? `${greet}, ${first}` : greet;
+  }
+}
+
+function syncWelcomeVisibility() {
+  const next = document.getElementById('next-trip-card');
+  const welcome = document.getElementById('welcome-card');
+  if (!next || !welcome) return;
+  // Show welcome only when the up-next hero is hidden.
+  if (next.classList.contains('hidden')) welcome.classList.remove('hidden');
+  else welcome.classList.add('hidden');
+}
 
 /* ================= FEATURES ================= */
 async function handleChatMessage(e) {
@@ -392,38 +621,122 @@ function addChatMessage(text, type) {
 async function loadFavorites() {
   try {
     const data = await apiCall('/api/favorites');
+    cachedFavorites = data.favorites || [];
     const list = document.getElementById('favorites-list');
-    if (!data.favorites.length) { list.innerHTML = '<div style="grid-column:1/-1; opacity:0.5; font-family:monospace;">NO DATA</div>'; updateDropdown([]); return; }
+    if (!data.favorites.length) {
+      list.innerHTML = `
+        <div class="empty-state" style="grid-column:1/-1;">
+          <div class="icon">＋</div>
+          <h5>No routes saved yet</h5>
+          <p>Save a route to pin it here — tap once for live arrivals, or set a recurring alert.</p>
+        </div>`;
+      updateDropdown([]);
+      return;
+    }
 
     list.innerHTML = data.favorites.map(fav => {
-      let color = fav.routeType === 'TRAIN' ? (LINE_COLORS[fav.routeId] || 'white') : 'var(--text-primary)';
-      let icon = fav.routeType === 'TRAIN' ? '🚇' : '🚌';
+      const isTrain = fav.routeType === 'TRAIN';
+      const color = isTrain ? (LINE_HEX[fav.routeId] || '#787774') : '#337EA9';
+      const chipText = isTrain ? `${fav.routeId} Line` : `Route ${fav.routeId}`;
+      const chipClass = isTrain && fav.routeId === 'Yellow' ? 'fav-chip on-yellow' : 'fav-chip';
       return `
-        <div class="card fav-card" data-id="${fav.id}" style="position: relative;">
-          <button class="icon-btn delete-fav-btn" data-id="${fav.id}" title="Delete Favorite" style="position: absolute; top: 4px; right: 4px; opacity: 0.5; transition: opacity 0.2s; font-size: 18px; width: 24px; height: 24px; padding: 0;">×</button>
-          <div class="fav-icon">${icon}</div>
-          <div class="fav-name">${fav.name}</div>
+        <div class="card fav-card" data-id="${fav.id}" style="--line-color: ${color};">
+          <button class="icon-btn delete-fav-btn" data-id="${fav.id}" title="Delete route" aria-label="Delete route">×</button>
+          <div class="${chipClass}">${chipText}</div>
+          <div class="fav-name">${escapeHtml(fav.name)}</div>
         </div>`;
     }).join('');
     updateDropdown(data.favorites);
   } catch (e) { console.error(e); }
 }
 
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+/* ================= SMART ROUTE SUGGESTIONS ================= */
+function updateRouteSuggestion() {
+  const input = document.getElementById('chat-input');
+  const box = document.getElementById('chat-suggestion');
+  if (!input || !box) return;
+  const raw = (input.value || '').trim();
+  if (raw.length < 2 || !cachedFavorites.length) return hideRouteSuggestion();
+
+  const q = raw.toLowerCase();
+  const tokens = q.split(/\s+/).filter(Boolean);
+
+  const scored = cachedFavorites.map((fav) => {
+    const hay = [
+      fav.name, fav.routeId, fav.routeType,
+      fav.routeType === 'TRAIN' ? `${fav.routeId} line` : `bus ${fav.routeId}`,
+    ].filter(Boolean).join(' ').toLowerCase();
+    const hits = tokens.filter((t) => hay.includes(t)).length;
+    return { fav, score: hits };
+  }).filter((r) => r.score > 0).sort((a, b) => b.score - a.score);
+
+  if (!scored.length) return hideRouteSuggestion();
+
+  const best = scored[0].fav;
+  const isTrain = best.routeType === 'TRAIN';
+  const color = isTrain ? (LINE_HEX[best.routeId] || '#787774') : '#337EA9';
+  const icon = isTrain ? '🚇' : '🚌';
+  const suggested = isTrain
+    ? `Next ${best.routeId} Line arrival at ${best.name}`
+    : `Next ${best.routeId} bus at ${best.name}`;
+
+  box.innerHTML = `
+    <span class="chat-suggestion-label">Try saved:</span>
+    <button type="button" class="chat-suggestion-chip" data-q="${escapeHtml(suggested)}" style="--line-color: ${color};">
+      <span class="chat-suggestion-dot" aria-hidden="true"></span>
+      <span>${icon} ${escapeHtml(best.name)}</span>
+    </button>
+  `;
+  box.classList.remove('hidden');
+
+  const chip = box.querySelector('.chat-suggestion-chip');
+  if (chip) {
+    chip.addEventListener('click', () => {
+      input.value = chip.dataset.q;
+      hideRouteSuggestion();
+      document.getElementById('chat-form').requestSubmit();
+    });
+  }
+}
+
+function hideRouteSuggestion() {
+  const box = document.getElementById('chat-suggestion');
+  if (box) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+  }
+}
+
 async function loadSchedules() {
   try {
     const data = await apiCall('/api/schedules');
     const list = document.getElementById('schedules-list');
-    if (!data.schedules.length) { list.innerHTML = '<div style="opacity:0.5; font-family:monospace;">NO ALERTS</div>'; updateNextTrip([]); return; }
+    if (!data.schedules.length) {
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">🔔</div>
+          <h5>No alerts scheduled</h5>
+          <p>Tap + to get notified at a recurring time — e.g. weekday mornings before your commute.</p>
+        </div>`;
+      updateNextTrip([]);
+      return;
+    }
 
     list.innerHTML = data.schedules.map(s => `
       <div class="alert-row">
         <div class="alert-info">
-          <h4>${s.favorite.name}</h4>
-          <div class="alert-meta">${formatTime(s.time)} // ${formatDays(s.daysOfWeek)}</div>
+          <h4>${escapeHtml(s.favorite.name)}</h4>
+          <div class="alert-meta">${formatTime(s.time)} · ${formatDays(s.daysOfWeek)}</div>
         </div>
         <div class="flex items-center gap-4">
-          <button class="icon-btn delete-btn" data-id="${s.id}" title="Delete Alert">×</button>
-          <div class="pill-toggle ${s.enabled ? 'active' : ''}" data-id="${s.id}"></div>
+          <button class="icon-btn delete-btn" data-id="${s.id}" title="Delete alert" aria-label="Delete alert">×</button>
+          <div class="pill-toggle ${s.enabled ? 'active' : ''}" data-id="${s.id}" role="switch" aria-checked="${s.enabled}"></div>
         </div>
       </div>
     `).join('');
@@ -467,7 +780,7 @@ async function updateNextTrip(schedules) {
     })
     .sort((a, b) => a.date - b.date)[0];
 
-  if (!next) { card.classList.add('hidden'); return; }
+  if (!next) { card.classList.add('hidden'); syncWelcomeVisibility(); return; }
 
   const alertDiff = Math.ceil((next.date - now) / 60000);
 
@@ -560,6 +873,7 @@ async function updateNextTrip(schedules) {
   `;
 
   card.classList.remove('hidden');
+  syncWelcomeVisibility();
 }
 
 /* --- HELPERS (Standard) --- */
@@ -821,7 +1135,6 @@ async function checkFavorite(id) {
     addChatMessage('⚠️ An error occurred. Please try again.', 'bot');
   }
 }
-function closeModal(id) { document.getElementById(id).classList.remove('show'); }
 async function handleMagicFill() {
   const input = document.getElementById('magic-route-input');
   const btn = document.getElementById('magic-fill-btn');

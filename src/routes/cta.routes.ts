@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { CTAController } from '../controllers/cta.controller';
+import { optionalAuthMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();
 
@@ -60,7 +61,7 @@ router.get('/bus/:routeId/stops/near-location', CTAController.findStopsNearNatur
  * Get transit suggestions using natural language
  * Query params: query (e.g., "How do I get from Northwestern to downtown?")
  */
-router.get('/transit/ask', CTAController.getTransitSuggestion);
+router.get('/transit/ask', optionalAuthMiddleware, CTAController.getTransitSuggestion);
 /**
  * GET /api/cta/arrivals
  * Get live arrivals for a specific route and stop

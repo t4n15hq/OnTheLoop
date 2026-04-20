@@ -10,7 +10,7 @@ import { startScheduler } from './services/scheduler.service';
 import authRoutes from './routes/auth.routes';
 import userRoutes from './routes/user.routes';
 import favoriteRoutes from './routes/favorite.routes';
-import smsRoutes from './routes/sms.routes';
+import telegramRoutes from './routes/telegram.routes';
 import ctaRoutes from './routes/cta.routes';
 
 const app = express();
@@ -43,8 +43,8 @@ app.get('/health', (req, res) => {
 
 // Routes - Order matters! More specific routes must come before catch-all routes
 app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);  // User profile routes (requires auth)
-app.use('/api/sms', smsRoutes);   // SMS webhook (no auth required)
+app.use('/api/users', userRoutes);
+app.use('/api/telegram', telegramRoutes); // bot webhook + setup (no JWT)
 app.use('/api/cta', ctaRoutes);
 app.use('/api', favoriteRoutes);  // Catch-all for /api/* (requires auth)
 

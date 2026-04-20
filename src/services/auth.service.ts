@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import config from '../config';
 import prisma from '../utils/db';
@@ -6,271 +7,166 @@ import logger from '../utils/logger';
 
 interface TokenPayload {
   userId: string;
-  phoneNumber: string;
+  email: string;
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function publicUser(user: {
+  id: string;
+  email: string;
+  name: string | null;
+  telegramChatId: string | null;
+  emailNotifications: boolean;
+  createdAt: Date;
+}) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    telegramLinked: Boolean(user.telegramChatId),
+    emailNotifications: user.emailNotifications,
+    createdAt: user.createdAt,
+  };
 }
 
 export class AuthService {
-  /**
-   * Hash a password
-   */
   static async hashPassword(password: string): Promise<string> {
     const salt = await bcrypt.genSalt(10);
     return bcrypt.hash(password, salt);
   }
 
-  /**
-   * Compare password with hash
-   */
   static async comparePassword(password: string, hash: string): Promise<boolean> {
     return bcrypt.compare(password, hash);
   }
 
-  /**
-   * Generate JWT token
-   */
   static generateToken(payload: TokenPayload): string {
     return jwt.sign(payload, config.jwt.secret, {
       expiresIn: config.jwt.expiresIn,
     } as jwt.SignOptions);
   }
 
-  /**
-   * Verify JWT token
-   */
   static verifyToken(token: string): TokenPayload {
     return jwt.verify(token, config.jwt.secret) as TokenPayload;
   }
 
-  /**
-   * Register a new user
-   */
-  static async register(phoneNumber: string, password: string) {
-    try {
-      // Check if user already exists
-      const existingUser = await prisma.user.findUnique({
-        where: { phoneNumber },
-      });
+  static async register(email: string, password: string, name?: string) {
+    const normalized = normalizeEmail(email);
 
-      if (existingUser) {
-        throw new Error('User with this phone number already exists');
-      }
-
-      // Hash password
-      const hashedPassword = await this.hashPassword(password);
-
-      // Create user
-      const user = await prisma.user.create({
-        data: {
-          phoneNumber,
-          password: hashedPassword,
-        },
-        select: {
-          id: true,
-          phoneNumber: true,
-          createdAt: true,
-        },
-      });
-
-      // Generate token
-      const token = this.generateToken({
-        userId: user.id,
-        phoneNumber: user.phoneNumber,
-      });
-
-      logger.info(`User registered: ${phoneNumber}`);
-
-      return { user, token };
-    } catch (error) {
-      logger.error('Registration error:', error);
-      throw error;
+    const existing = await prisma.user.findUnique({ where: { email: normalized } });
+    if (existing) {
+      throw new Error('An account with this email already exists');
     }
+
+    const hashedPassword = await this.hashPassword(password);
+
+    const user = await prisma.user.create({
+      data: {
+        email: normalized,
+        password: hashedPassword,
+        name: name?.trim() || null,
+      },
+    });
+
+    const token = this.generateToken({ userId: user.id, email: user.email });
+    logger.info(`User registered: ${user.email}`);
+
+    return { user: publicUser(user), token };
   }
 
-  /**
-   * Login user
-   */
-  static async login(phoneNumber: string, password: string) {
-    try {
-      // Find user
-      const user = await prisma.user.findUnique({
-        where: { phoneNumber },
-      });
+  static async login(email: string, password: string) {
+    const normalized = normalizeEmail(email);
 
-      if (!user) {
-        throw new Error('Invalid credentials');
-      }
-
-      // Verify password
-      const isValidPassword = await this.comparePassword(password, user.password);
-
-      if (!isValidPassword) {
-        throw new Error('Invalid credentials');
-      }
-
-      // Generate token
-      const token = this.generateToken({
-        userId: user.id,
-        phoneNumber: user.phoneNumber,
-      });
-
-      logger.info(`User logged in: ${phoneNumber}`);
-
-      return {
-        user: {
-          id: user.id,
-          phoneNumber: user.phoneNumber,
-          createdAt: user.createdAt,
-        },
-        token,
-      };
-    } catch (error) {
-      logger.error('Login error:', error);
-      throw error;
+    const user = await prisma.user.findUnique({ where: { email: normalized } });
+    if (!user) {
+      throw new Error('Invalid credentials');
     }
+
+    const valid = await this.comparePassword(password, user.password);
+    if (!valid) {
+      throw new Error('Invalid credentials');
+    }
+
+    const token = this.generateToken({ userId: user.id, email: user.email });
+    logger.info(`User logged in: ${user.email}`);
+
+    return { user: publicUser(user), token };
   }
 
-  /**
-   * Get user by phone number (for SMS authentication)
-   */
-  static async getUserByPhone(phoneNumber: string) {
-    try {
-      const user = await prisma.user.findUnique({
-        where: { phoneNumber },
-        select: {
-          id: true,
-          phoneNumber: true,
-          email: true,
-          createdAt: true,
-        },
-      });
-
-      return user;
-    } catch (error) {
-      logger.error('Get user error:', error);
-      throw error;
-    }
+  static async getUserById(userId: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    return user ? publicUser(user) : null;
   }
 
-  /**
-   * Register a new user (phone-only, no password)
-   */
-  static async registerPhoneOnly(phoneNumber: string) {
-    try {
-      // Check if user already exists
-      const existingUser = await prisma.user.findUnique({
-        where: { phoneNumber },
-      });
-
-      if (existingUser) {
-        throw new Error('User with this phone number already exists');
-      }
-
-      // Create user with a dummy password (not used)
-      const user = await prisma.user.create({
-        data: {
-          phoneNumber,
-          password: await this.hashPassword(phoneNumber), // Use phone as dummy password
-        },
-        select: {
-          id: true,
-          phoneNumber: true,
-          createdAt: true,
-        },
-      });
-
-      // Generate token
-      const token = this.generateToken({
-        userId: user.id,
-        phoneNumber: user.phoneNumber,
-      });
-
-      logger.info(`User registered (phone-only): ${phoneNumber}`);
-
-      return { user, token };
-    } catch (error) {
-      logger.error('Phone-only registration error:', error);
-      throw error;
-    }
+  static async getUserByTelegramChatId(chatId: string) {
+    return prisma.user.findUnique({ where: { telegramChatId: chatId } });
   }
 
-  /**
-   * Login user (phone-only, no password)
-   */
-  static async loginPhoneOnly(phoneNumber: string) {
-    try {
-      // Find user
-      const user = await prisma.user.findUnique({
-        where: { phoneNumber },
-      });
-
-      if (!user) {
-        throw new Error('User not found. Please register first.');
-      }
-
-      // Generate token
-      const token = this.generateToken({
-        userId: user.id,
-        phoneNumber: user.phoneNumber,
-      });
-
-      logger.info(`User logged in (phone-only): ${phoneNumber}`);
-
-      return {
-        user: {
-          id: user.id,
-          phoneNumber: user.phoneNumber,
-          createdAt: user.createdAt,
-        },
-        token,
-      };
-    } catch (error) {
-      logger.error('Phone-only login error:', error);
-      throw error;
-    }
-  }
-  /**
-   * Update user password
-   */
   static async updatePassword(userId: string, password: string) {
-    try {
-      // Hash new password
-      const hashedPassword = await this.hashPassword(password);
+    const hashed = await this.hashPassword(password);
+    await prisma.user.update({ where: { id: userId }, data: { password: hashed } });
+    logger.info(`Password updated for user: ${userId}`);
+  }
 
-      // Update user
-      await prisma.user.update({
-        where: { id: userId },
-        data: { password: hashedPassword },
-      });
+  static async updateProfile(
+    userId: string,
+    data: { name?: string; email?: string; emailNotifications?: boolean }
+  ) {
+    const update: Record<string, unknown> = {};
 
-      logger.info(`Password updated for user: ${userId}`);
-    } catch (error) {
-      logger.error('Update password error:', error);
-      throw error;
+    if (typeof data.name === 'string') update.name = data.name.trim() || null;
+    if (typeof data.emailNotifications === 'boolean') update.emailNotifications = data.emailNotifications;
+    if (typeof data.email === 'string') {
+      const normalized = normalizeEmail(data.email);
+      if (normalized) {
+        const clash = await prisma.user.findFirst({
+          where: { email: normalized, NOT: { id: userId } },
+        });
+        if (clash) throw new Error('That email is already in use');
+        update.email = normalized;
+      }
     }
+
+    const user = await prisma.user.update({ where: { id: userId }, data: update });
+    logger.info(`Profile updated for user: ${userId}`);
+    return publicUser(user);
   }
 
   /**
-   * Update user profile
+   * Generate (or reuse) a one-time Telegram link token for a user.
+   * The user sends `/start <token>` to the bot to bind their chat.
    */
-  static async updateProfile(userId: string, data: { name?: string; email?: string }) {
-    try {
-      const user = await prisma.user.update({
-        where: { id: userId },
-        data,
-        select: {
-          id: true,
-          phoneNumber: true,
-          name: true,
-          email: true,
-          createdAt: true,
-        },
-      });
+  static async createTelegramLinkToken(userId: string): Promise<string> {
+    const token = crypto.randomBytes(24).toString('base64url');
+    await prisma.user.update({
+      where: { id: userId },
+      data: { telegramLinkToken: token },
+    });
+    return token;
+  }
 
-      logger.info(`Profile updated for user: ${userId}`);
-      return user;
-    } catch (error) {
-      logger.error('Update profile error:', error);
-      throw error;
-    }
+  /**
+   * Consume a link token: bind the given chatId to the user that owns the token.
+   * Returns the bound user, or null if the token is unknown/expired.
+   */
+  static async consumeTelegramLinkToken(token: string, chatId: string) {
+    const user = await prisma.user.findUnique({ where: { telegramLinkToken: token } });
+    if (!user) return null;
+
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: { telegramChatId: chatId, telegramLinkToken: null },
+    });
+    logger.info(`Telegram linked for user: ${updated.email}`);
+    return updated;
+  }
+
+  static async unlinkTelegram(userId: string) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { telegramChatId: null, telegramLinkToken: null },
+    });
   }
 }

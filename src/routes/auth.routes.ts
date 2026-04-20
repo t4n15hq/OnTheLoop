@@ -10,22 +10,9 @@ import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = Router();
 
-/**
- * POST /api/auth/register
- * Register a new user
- */
 router.post('/register', registerValidation, AuthController.register);
-
-/**
- * POST /api/auth/login
- * Login user
- */
 router.post('/login', loginValidation, AuthController.login);
 
-/**
- * PUT /api/auth/password
- * Update password
- */
 router.put(
   '/password',
   authMiddleware,
@@ -33,15 +20,14 @@ router.put(
   AuthController.updatePassword
 );
 
-/**
- * PUT /api/auth/profile
- * Update profile details
- */
 router.put(
   '/profile',
   authMiddleware,
   profileUpdateValidation,
   AuthController.updateProfile
 );
+
+router.post('/telegram/link', authMiddleware, AuthController.createTelegramLink);
+router.delete('/telegram/link', authMiddleware, AuthController.unlinkTelegram);
 
 export default router;

@@ -5,6 +5,7 @@ dotenv.config();
 interface Config {
   port: number;
   nodeEnv: string;
+  publicUrl: string;
   databaseUrl: string;
   redis: {
     host: string;
@@ -19,14 +20,13 @@ interface Config {
     trainApiKey: string;
     busApiKey: string;
   };
-  aws: {
-    region: string;
-    accessKeyId: string;
-    secretAccessKey: string;
-    snsPhoneNumber?: string; // Optional: Sender ID for SMS (if supported in region)
-  };
   google: {
     geminiApiKey: string;
+  };
+  telegram: {
+    botToken: string;
+    botUsername: string;
+    webhookSecret: string;
   };
   email?: {
     user: string;
@@ -44,6 +44,7 @@ interface Config {
 const config: Config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
+  publicUrl: process.env.PUBLIC_URL || 'http://localhost:3000',
   databaseUrl: process.env.DATABASE_URL || '',
   redis: {
     host: process.env.REDIS_HOST || 'localhost',
@@ -58,14 +59,13 @@ const config: Config = {
     trainApiKey: process.env.CTA_TRAIN_API_KEY || '',
     busApiKey: process.env.CTA_BUS_API_KEY || '',
   },
-  aws: {
-    region: process.env.AWS_REGION || 'us-east-1',
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
-    snsPhoneNumber: process.env.AWS_SNS_PHONE_NUMBER,
-  },
   google: {
     geminiApiKey: process.env.GOOGLE_GEMINI_API_KEY || '',
+  },
+  telegram: {
+    botToken: process.env.TELEGRAM_BOT_TOKEN || '',
+    botUsername: process.env.TELEGRAM_BOT_USERNAME || '',
+    webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || '',
   },
   email: process.env.EMAIL_USER && process.env.EMAIL_PASS ? {
     user: process.env.EMAIL_USER,

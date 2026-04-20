@@ -3,6 +3,7 @@ import { CTALookupService } from '../services/cta-lookup.service';
 import { GeminiMapsService } from '../services/gemini-maps.service';
 import { CTAService } from '../services/cta.service';
 import { AISMSService } from '../services/ai-sms.service';
+import { AuthRequest } from '../middleware/auth.middleware';
 import logger from '../utils/logger';
 import prisma from '../utils/db';
 
@@ -229,9 +230,10 @@ export class CTAController {
    * Example: "How do I get from Northwestern to downtown?"
    * Example: "When is the next 157 bus?"
    */
-  static async getTransitSuggestion(req: Request, res: Response): Promise<void> {
+  static async getTransitSuggestion(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { query } = req.query;
+      const userId = req.user?.userId;
       // In a real app, we'd get userId from the auth token. 
       // For now, we'll assume a default user or pass it in headers if available.
       // Since we don't have auth middleware here yet, we'll try to match by name broadly 
@@ -260,35 +262,47 @@ export class CTAController {
       let realTimeArrivals = null;
       let conversationalResponse = null;
 
-      // 1. Check if the query matches a Favorite Name (e.g. "To Home from Gym")
-      // We fetch all favorites and do a fuzzy match in memory for better accuracy
-      const allFavorites = await prisma.favorite.findMany();
+      // 1. Check if the query matches one of the *signed-in user's* favorites
+      // (e.g. "when's my Home bus?"). Skip entirely for:
+      //   - anonymous callers (no userId)
+      //   - street-address queries like "1029 S Lytle to 820 S Wolcott" which
+      //     should always go to Maps-grounded routing, never a favorite match.
+      const looksLikeAddress = /\b\d{2,5}\s+[nsew]\b|\b(st|ave|avenue|blvd|road|rd|drive|dr|street)\b/i.test(query);
 
       let matchingFavorite = null;
       let bestScore = 0;
 
-      const queryTokens = query.toLowerCase().split(/\s+/).filter((t: string) => t.length > 2 && !['the', 'to', 'from', 'bus', 'train'].includes(t));
+      if (userId && !looksLikeAddress) {
+        const userFavorites = await prisma.favorite.findMany({ where: { userId } });
+        const stop = new Set(['the', 'and', 'for', 'how', 'get', 'can', 'what', 'when', 'where', 'next', 'bus', 'train', 'line']);
+        const qTokens = query
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((t: string) => t.length > 2 && !stop.has(t) && !/^\d+$/.test(t));
 
-      for (const fav of allFavorites) {
-        const favTokens = fav.name.toLowerCase().split(/\s+/).filter((t: string) => t.length > 2 && !['the', 'to', 'from', 'bus', 'train'].includes(t));
-
-        let matches = 0;
-        for (const qt of queryTokens) {
-          if (favTokens.some((ft: string) => ft.includes(qt) || qt.includes(ft))) {
-            matches++;
+        if (qTokens.length > 0) {
+          for (const fav of userFavorites) {
+            const favTokens = fav.name
+              .toLowerCase()
+              .split(/\s+/)
+              .filter((t: string) => t.length > 2 && !stop.has(t));
+            if (favTokens.length === 0) continue;
+            let matches = 0;
+            for (const qt of qTokens) {
+              if (favTokens.some((ft: string) => ft === qt || ft.includes(qt) || qt.includes(ft))) {
+                matches++;
+              }
+            }
+            const score = matches / qTokens.length;
+            if (score > bestScore) {
+              bestScore = score;
+              matchingFavorite = fav;
+            }
           }
-        }
-
-        // Simple score: percentage of query tokens matched
-        const score = matches / queryTokens.length;
-
-        if (score > 0 && score >= bestScore) {
-          bestScore = score;
-          matchingFavorite = fav;
         }
       }
 
-      if (matchingFavorite && bestScore > 0.3) { // Threshold to avoid random matches
+      if (matchingFavorite && bestScore >= 0.5) { // Higher threshold — avoid false positives
         logger.info(`Found matching favorite: ${matchingFavorite.name} (Score: ${bestScore})`);
 
         // Use the favorite's specific stop
@@ -298,8 +312,8 @@ export class CTAController {
 
         if (stopId) {
           const arrivals = matchingFavorite.routeType === 'TRAIN'
-            ? await CTAService.getTrainArrivals(stopId, matchingFavorite.routeId)
-            : await CTAService.getBusPredictions(stopId, matchingFavorite.routeId, 3);
+            ? await CTAService.getTrainArrivals(stopId, matchingFavorite.routeId, matchingFavorite.direction || undefined)
+            : await CTAService.getBusPredictions(stopId, matchingFavorite.routeId, 3, matchingFavorite.direction || undefined);
 
           const validArrivals = arrivals.filter(a => a.minutesAway !== null || a.isApproaching);
 
@@ -434,35 +448,21 @@ export class CTAController {
             // Sort routes by quickest arrival time (ascending)
             routeArrivals.sort((a, b) => a.nextArrival - b.nextArrival);
 
-            // Build short, scannable response with options ranked by speed
-            conversationalResponse = '';
+            // Always lead with the AI directions so the rider actually knows
+            // *how* to make the trip. Real-time arrivals get appended as a
+            // compact "Live on your route" footer when we have them.
+            conversationalResponse = directions.trim();
 
-            // Show real-time arrivals if available, sorted by fastest first
             if (routeArrivals.length > 0) {
-              conversationalResponse += '⚡ Fastest Option:\n';
-              const fastest = routeArrivals[0];
-              const nextBus = fastest.arrivals[0];
-              const timeText = nextBus.isApproaching ? 'NOW' : `${nextBus.minutesAway} min`;
-              const icon = fastest.type === 'train' ? '🚊' : '🚌';
-              conversationalResponse += `${icon} ${fastest.type === 'train' ? fastest.route + ' Line' : 'Route ' + fastest.route} → ${timeText}\n`;
-              conversationalResponse += `📍 ${fastest.stopName}\n`;
-
-              // Show alternative options
-              if (routeArrivals.length > 1) {
-                conversationalResponse += '\n📋 Alternatives:\n';
-                for (let i = 1; i < Math.min(3, routeArrivals.length); i++) {
-                  const alt = routeArrivals[i];
-                  const altNext = alt.arrivals[0];
-                  const altTime = altNext.isApproaching ? 'NOW' : `${altNext.minutesAway} min`;
-                  const altIcon = alt.type === 'train' ? '🚊' : '🚌';
-                  conversationalResponse += `${altIcon} ${alt.type === 'train' ? alt.route + ' Line' : 'Route ' + alt.route} → ${altTime}\n`;
-                }
+              conversationalResponse += '\n\n⚡ Live right now:\n';
+              const top = routeArrivals.slice(0, 3);
+              for (const r of top) {
+                const next = r.arrivals[0];
+                const timeText = next.isApproaching ? 'NOW' : `${next.minutesAway} min`;
+                const icon = r.type === 'train' ? '🚊' : '🚌';
+                const label = r.type === 'train' ? `${r.route} Line` : `Route ${r.route}`;
+                conversationalResponse += `${icon} ${label} → ${timeText} @ ${r.stopName}\n`;
               }
-            } else {
-              // No real-time data, show condensed AI directions
-              conversationalResponse += '📍 Directions:\n';
-              const sentences = directions.split(/[.!]\s+/).filter(s => s.length > 20);
-              conversationalResponse += sentences.slice(0, 2).join('. ').substring(0, 200) + '...';
             }
 
             realTimeArrivals = routeArrivals.length > 0 ? { routes: routeArrivals } : null;

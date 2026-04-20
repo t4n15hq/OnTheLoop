@@ -11,15 +11,17 @@ datasource db {
 }
 
 model User {
-  id           String       @id @default(cuid())
-  phoneNumber  String       @unique
-  name         String?      // Display name
-  email        String?      // Optional email for notifications
-  password     String
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  favorites    Favorite[]
-  schedules    Schedule[]
+  id                  String       @id @default(cuid())
+  email               String       @unique
+  name                String?
+  password            String
+  telegramChatId      String?      @unique
+  telegramLinkToken   String?      @unique
+  emailNotifications  Boolean      @default(false)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  favorites           Favorite[]
+  schedules           Schedule[]
 
   @@map("users")
 }

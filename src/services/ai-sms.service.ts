@@ -29,7 +29,7 @@ export class AISMSService {
       logger.info(`Parsing route config: ${query}`);
 
       // 1. Ask Gemini to extract intent and addresses with detailed instructions
-      const model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+      const model = this.genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
       const prompt = `You are a Chicago CTA transit expert. Analyze this query: "${query}"
 
 Your task is to determine if this is:
@@ -320,7 +320,7 @@ BE CONSERVATIVE: If you're unsure whether something is an address, assume it's a
       logger.info(`Parsing SMS query: ${query}`);
 
       const model = this.genAI.getGenerativeModel({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-flash-latest',
         safetySettings: [
           {
             category: HarmCategory.HARM_CATEGORY_HARASSMENT,
@@ -514,7 +514,7 @@ Examples:
   ): Promise<string> {
     try {
       const chat = this.genAI.getGenerativeModel({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-flash-latest',
         safetySettings: [
           {
             category: HarmCategory.HARM_CATEGORY_HARASSMENT,

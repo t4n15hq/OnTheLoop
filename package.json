@@ -1,7 +1,7 @@
 {
   "name": "cta-track",
-  "version": "1.0.0",
-  "description": "CTA Train & Bus tracker with SMS notifications",
+  "version": "2.0.0",
+  "description": "CTA Train & Bus tracker with Telegram bot + web app notifications",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -15,13 +15,13 @@
   "keywords": [
     "cta",
     "transit",
-    "sms",
+    "telegram",
     "notifications"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@aws-sdk/client-sns": "^3.933.0",
+    "@google/genai": "^1.50.1",
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.19.0",
     "@types/nodemailer": "^7.0.3",
@@ -39,6 +39,7 @@
     "winston": "^3.15.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",

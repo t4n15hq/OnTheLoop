@@ -1,52 +1,512 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Loop | Kinetic Utility</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>On the Loop — Live Chicago transit, in your pocket</title>
+  <meta name="description" content="Live Chicago CTA train and bus arrivals. Save your routes. Get scheduled Telegram pings before you leave.">
+  <meta name="theme-color" content="#F5F3EC" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0C0C0A" media="(prefers-color-scheme: dark)">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="On the Loop — Live Chicago transit, in your pocket">
+  <meta property="og:description" content="Live CTA arrivals. Saved routes. Telegram pings before you leave. Free.">
+  <meta property="og:url" content="https://ontheloop.app">
+  <meta property="og:site_name" content="On the Loop">
+  <meta property="og:image" content="/og-image.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="On the Loop">
+  <meta name="twitter:description" content="Live Chicago transit, in your pocket.">
+  <meta name="twitter:image" content="/og-image.svg">
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&family=JetBrains+Mono:wght@400;700&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap"
     rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230B0B09'/%3E%3Ctext x='32' y='44' font-family='Georgia,serif' font-style='italic' font-weight='500' font-size='34' fill='%23F5F3EC' text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E">
+  <link rel="apple-touch-icon"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%230B0B09'/%3E%3Ctext x='90' y='124' font-family='Georgia,serif' font-style='italic' font-weight='500' font-size='96' fill='%23F5F3EC' text-anchor='middle'%3EL%3C/text%3E%3C/svg%3E">
 </head>
 
 <body>
 
-  <!-- TEXTURE LAYER -->
-  <div class="texture-layer">
-    <div class="noise-overlay"></div>
-    <div class="ascii-overlay"></div>
+  <!-- Ambient subway-map backdrop (fixed, decorative, pointer-events none) -->
+  <svg class="subway-bg" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <defs>
+      <filter id="lineGlow" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="6" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <g filter="url(#lineGlow)" stroke-width="3" fill="none" opacity="0.55">
+      <path d="M-40,120 C220,60 420,220 720,180 S1180,60 1500,140" stroke="#C60C30"/>
+      <path d="M-40,280 C260,340 480,220 760,300 S1200,360 1500,280" stroke="#00A1DE"/>
+      <path d="M-40,440 C300,380 520,520 800,460 S1220,420 1500,500" stroke="#009B3A"/>
+      <path d="M-40,600 C240,660 500,560 780,640 S1240,680 1500,600" stroke="#F9461C"/>
+      <path d="M-40,760 C260,820 520,700 820,780 S1260,820 1500,740" stroke="#522398"/>
+    </g>
+  </svg>
+
+  <!-- LANDING VIEW -->
+  <div id="landing-view" class="lv hidden">
+
+    <!-- ASCII LOOP BACKDROP -->
+    <pre class="lv-loop-bg" aria-hidden="true">
+  ╔══════════════ LAKE ═════════════════╗
+  ║                                      ║
+  ║   ●────●────●────●────●────●────●    ║
+  ║   │                              │    ║
+  ║   ●  CLARK/LAKE              ●  STATE ║
+  ║   │                              │    ║
+  ║   ●                              ●    ║
+  ║W  │                              │  W ║
+  ║E  ●                              ●  A ║
+  ║L  │           THE LOOP           │  B ║
+  ║L  ●                              ●  A ║
+  ║S  │                              │  S ║
+  ║   ●                              ●  H ║
+  ║   │                              │    ║
+  ║   ●  LASALLE                 ●  ADAMS ║
+  ║   │                              │    ║
+  ║   ●────●────●────●────●────●────●    ║
+  ║                                      ║
+  ╚════════════ VAN BUREN ═══════════════╝
+    </pre>
+
+    <!-- TOP TICKER -->
+    <div class="lv-ticker">
+      <div class="lv-ticker-status">
+        <span class="lv-ticker-dot"></span>
+        <span class="lv-ticker-live">LIVE</span>
+        <span class="lv-ticker-sep">·</span>
+        <span id="lv-ticker-time">11:42</span>
+        <span class="lv-ticker-sep">·</span>
+        <span>CHICAGO</span>
+      </div>
+      <div class="lv-ticker-scroll" aria-hidden="true">
+        <div class="lv-ticker-track">
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-red)">RED</span> 95TH/DAN RYAN · <b>2 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-blue)">BLU</span> O'HARE · <b>6 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-brown)">BRN</span> KIMBALL · <b>8 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-green)">GRN</span> HARLEM/LAKE · <b>9 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-orange)">ORG</span> MIDWAY · <b>11 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-purple)">PUR</span> LINDEN · <b>12 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-pink)">PNK</span> 54/CERMAK · <b>14 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge lv-badge-bus">22</span> CLARK/BELMONT · <b>3 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge lv-badge-bus">147</span> LAKE SHORE EXPRESS · <b>5 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-red)">RED</span> HOWARD · <b>14 MIN</b></span>
+          <!-- duplicate for seamless loop -->
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-red)">RED</span> 95TH/DAN RYAN · <b>2 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-blue)">BLU</span> O'HARE · <b>6 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-brown)">BRN</span> KIMBALL · <b>8 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-green)">GRN</span> HARLEM/LAKE · <b>9 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-orange)">ORG</span> MIDWAY · <b>11 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-purple)">PUR</span> LINDEN · <b>12 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-pink)">PNK</span> 54/CERMAK · <b>14 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge lv-badge-bus">22</span> CLARK/BELMONT · <b>3 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge lv-badge-bus">147</span> LAKE SHORE EXPRESS · <b>5 MIN</b></span>
+          <span class="lv-ticker-item"><span class="lv-badge" style="--c: var(--cta-red)">RED</span> HOWARD · <b>14 MIN</b></span>
+        </div>
+      </div>
+      <div class="lv-ticker-weather">
+        <span id="lv-ticker-weather-temp">72°F</span>
+        <span class="lv-ticker-sep">·</span>
+        <span>WINDY</span>
+      </div>
+    </div>
+
+    <!-- NAV -->
+    <nav class="lv-nav">
+      <a href="#" class="lv-brand" id="landing-brand-home">
+        <span class="lv-brand-mark">L</span>
+        <span class="lv-brand-name">ON THE LOOP</span>
+      </a>
+      <div class="lv-nav-links">
+        <button id="landing-theme-toggle" class="lv-icon-btn" title="Toggle theme" aria-label="Toggle theme">
+          <span class="sun">☀</span><span class="moon" style="display:none">☾</span>
+        </button>
+        <a href="#login" class="lv-nav-link">SIGN IN</a>
+        <a href="#register" class="lv-nav-cta">GET STARTED <span class="lv-arrow">→</span></a>
+      </div>
+    </nav>
+
+    <!-- HERO -->
+    <section class="lv-hero">
+      <div class="lv-hero-content">
+        <div class="lv-kicker">
+          <span class="lv-kicker-num">01</span>
+          <span class="lv-kicker-rule"></span>
+          <span class="lv-kicker-text">INTRODUCING</span>
+        </div>
+        <h1 class="lv-hero-title">
+          <span class="lv-hero-line">Chicago transit,</span>
+          <span class="lv-hero-line"><em>in your</em> pocket.</span>
+        </h1>
+        <p class="lv-hero-sub">
+          Live Red, Blue, Green Line and bus arrivals. Save your routes.
+          Get Telegram pings before the train is a dot on the map.
+        </p>
+        <div class="lv-hero-actions">
+          <a href="#register" class="lv-cta-primary">
+            GET STARTED <span class="lv-arrow">→</span>
+          </a>
+          <a href="#login" class="lv-cta-secondary">
+            I have an account
+          </a>
+        </div>
+        <div class="lv-hero-meta">
+          <span class="lv-hero-meta-item">
+            <span class="lv-pulse-dot"></span>
+            FREE FOREVER
+          </span>
+          <span class="lv-ticker-sep">·</span>
+          <span class="lv-hero-meta-item">NO CARD</span>
+          <span class="lv-ticker-sep">·</span>
+          <span class="lv-hero-meta-item">MADE IN CHICAGO</span>
+        </div>
+      </div>
+
+      <aside class="lv-hero-side">
+        <div class="lv-hero-sign">
+          <div class="lv-hero-sign-header">
+            <span class="lv-hero-sign-platform">PLATFORM 01</span>
+            <span class="lv-hero-sign-track">TRACK A</span>
+          </div>
+          <div class="lv-hero-sign-title">BELMONT</div>
+          <div class="lv-hero-sign-sub">CLARK &amp; BELMONT · NB/SB</div>
+          <div class="lv-hero-sign-rows">
+            <div class="lv-hero-sign-row">
+              <span class="lv-badge" style="--c: var(--cta-red)">RED</span>
+              <span class="lv-hero-sign-dest">95TH/DAN RYAN</span>
+              <span class="lv-hero-sign-time lv-live">2<small>M</small></span>
+            </div>
+            <div class="lv-hero-sign-row">
+              <span class="lv-badge" style="--c: var(--cta-brown)">BRN</span>
+              <span class="lv-hero-sign-dest">KIMBALL</span>
+              <span class="lv-hero-sign-time lv-live">6<small>M</small></span>
+            </div>
+            <div class="lv-hero-sign-row">
+              <span class="lv-badge" style="--c: var(--cta-purple)">PUR</span>
+              <span class="lv-hero-sign-dest">LINDEN</span>
+              <span class="lv-hero-sign-time">11<small>M</small></span>
+            </div>
+            <div class="lv-hero-sign-row">
+              <span class="lv-badge" style="--c: var(--cta-red)">RED</span>
+              <span class="lv-hero-sign-dest">HOWARD</span>
+              <span class="lv-hero-sign-time">14<small>M</small></span>
+            </div>
+          </div>
+          <div class="lv-hero-sign-foot">
+            <span>NEXT UPDATE</span>
+            <span class="lv-hero-sign-countdown">
+              <span class="lv-pulse-dot"></span>
+              LIVE
+            </span>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- LINE COLORS STRIP -->
+    <div class="lv-lines" role="list" aria-label="CTA lines">
+      <div class="lv-line" style="--c: var(--cta-red)" role="listitem">RED</div>
+      <div class="lv-line" style="--c: var(--cta-blue)" role="listitem">BLUE</div>
+      <div class="lv-line" style="--c: var(--cta-brown)" role="listitem">BROWN</div>
+      <div class="lv-line" style="--c: var(--cta-green)" role="listitem">GREEN</div>
+      <div class="lv-line" style="--c: var(--cta-orange)" role="listitem">ORANGE</div>
+      <div class="lv-line" style="--c: var(--cta-pink)" role="listitem">PINK</div>
+      <div class="lv-line" style="--c: var(--cta-purple)" role="listitem">PURPLE</div>
+      <div class="lv-line lv-line-yellow" style="--c: var(--cta-yellow)" role="listitem">YELLOW</div>
+    </div>
+
+    <!-- FEATURES — STATIONS -->
+    <section class="lv-section">
+      <div class="lv-section-head">
+        <div class="lv-kicker">
+          <span class="lv-kicker-num">02</span>
+          <span class="lv-kicker-rule"></span>
+          <span class="lv-kicker-text">FEATURES</span>
+        </div>
+        <h2 class="lv-section-title">Every stop on <em>your</em> route.</h2>
+        <p class="lv-section-sub">Three features. Zero bloat.</p>
+      </div>
+
+      <div class="lv-stations">
+        <article class="lv-station" style="--stc: var(--cta-red)">
+          <div class="lv-station-stripe"></div>
+          <div class="lv-station-top">
+            <span class="lv-station-num">01</span>
+            <span class="lv-station-label">ROUTES</span>
+          </div>
+          <h3 class="lv-station-title">Saved <em>routes</em></h3>
+          <p class="lv-station-desc">
+            Pin your morning Red Line or the 147 home. Tap once for live
+            arrivals — no apps to open, no fumbling with stop IDs.
+          </p>
+          <div class="lv-station-arr">
+            <span class="lv-badge" style="--c: var(--cta-red)">RED</span>
+            <span class="lv-station-dest">95TH/DAN RYAN</span>
+            <span class="lv-station-min lv-live">2<small>M</small></span>
+          </div>
+        </article>
+
+        <article class="lv-station" style="--stc: var(--cta-blue)">
+          <div class="lv-station-stripe"></div>
+          <div class="lv-station-top">
+            <span class="lv-station-num">02</span>
+            <span class="lv-station-label">ASSISTANT</span>
+          </div>
+          <h3 class="lv-station-title">Ask <em>anything</em></h3>
+          <p class="lv-station-desc">
+            "Next Red Line from Belmont?" "Trip from Wrigley to Willis?"
+            The assistant understands how Chicagoans talk.
+          </p>
+          <div class="lv-station-arr">
+            <span class="lv-badge" style="--c: var(--cta-blue)">BLU</span>
+            <span class="lv-station-dest">O'HARE</span>
+            <span class="lv-station-min lv-live">6<small>M</small></span>
+          </div>
+        </article>
+
+        <article class="lv-station" style="--stc: var(--cta-green)">
+          <div class="lv-station-stripe"></div>
+          <div class="lv-station-top">
+            <span class="lv-station-num">03</span>
+            <span class="lv-station-label">ALERTS</span>
+          </div>
+          <h3 class="lv-station-title">Telegram <em>pings</em></h3>
+          <p class="lv-station-desc">
+            Schedule a ping at 8:15 AM weekdays. Know when to leave,
+            before the train's already a dot on the map.
+          </p>
+          <div class="lv-station-arr">
+            <span class="lv-badge" style="--c: var(--cta-green)">GRN</span>
+            <span class="lv-station-dest">HARLEM/LAKE</span>
+            <span class="lv-station-min">9<small>M</small></span>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- HOW IT WORKS — ROUTE MAP -->
+    <section class="lv-section">
+      <div class="lv-section-head">
+        <div class="lv-kicker">
+          <span class="lv-kicker-num">03</span>
+          <span class="lv-kicker-rule"></span>
+          <span class="lv-kicker-text">HOW IT WORKS</span>
+        </div>
+        <h2 class="lv-section-title">Three stops to your <em>first arrival</em>.</h2>
+      </div>
+
+      <div class="lv-route">
+        <div class="lv-route-track" aria-hidden="true"></div>
+        <div class="lv-route-stops">
+          <div class="lv-route-stop">
+            <div class="lv-route-dot"></div>
+            <div class="lv-route-code">01 / START</div>
+            <h4 class="lv-route-stop-title">Sign up</h4>
+            <p class="lv-route-stop-desc">Email &amp; password. No credit card, no phone.</p>
+          </div>
+          <div class="lv-route-stop">
+            <div class="lv-route-dot"></div>
+            <div class="lv-route-code">02 / TRANSFER</div>
+            <h4 class="lv-route-stop-title">Pin a route</h4>
+            <p class="lv-route-stop-desc">Pick a line, pick a stop. Or describe it.</p>
+          </div>
+          <div class="lv-route-stop">
+            <div class="lv-route-dot lv-route-dot-end"></div>
+            <div class="lv-route-code">03 / ARRIVE</div>
+            <h4 class="lv-route-stop-title">Get arrivals</h4>
+            <p class="lv-route-stop-desc">Tap, ask, or ping yourself via Telegram.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LIVE ARRIVALS BOARD DEMO -->
+    <section class="lv-section">
+      <div class="lv-section-head">
+        <div class="lv-kicker">
+          <span class="lv-kicker-num">04</span>
+          <span class="lv-kicker-rule"></span>
+          <span class="lv-kicker-text">LIVE</span>
+        </div>
+        <h2 class="lv-section-title">Your board, rendered <em>live</em>.</h2>
+        <p class="lv-section-sub">What you'll see every morning — real arrivals from the CTA.</p>
+      </div>
+
+      <div class="lv-board">
+        <div class="lv-board-header">
+          <div class="lv-board-title">
+            <span class="lv-pulse-dot"></span>
+            NEXT ARRIVALS
+          </div>
+          <div class="lv-board-meta">
+            <span>BELMONT STATION</span>
+            <span class="lv-ticker-sep">·</span>
+            <span id="lv-board-time">11:42 AM</span>
+          </div>
+        </div>
+
+        <table class="lv-board-rows">
+          <thead>
+            <tr>
+              <th>LINE</th>
+              <th>DESTINATION</th>
+              <th class="lv-board-dir">DIR</th>
+              <th class="lv-board-r">IN</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="lv-badge" style="--c: var(--cta-red)">RED</span></td>
+              <td>95TH/DAN RYAN</td>
+              <td class="lv-board-dir">SB</td>
+              <td class="lv-board-r lv-live">2 MIN</td>
+            </tr>
+            <tr>
+              <td><span class="lv-badge" style="--c: var(--cta-brown)">BRN</span></td>
+              <td>KIMBALL</td>
+              <td class="lv-board-dir">NB</td>
+              <td class="lv-board-r lv-live">6 MIN</td>
+            </tr>
+            <tr>
+              <td><span class="lv-badge" style="--c: var(--cta-purple)">PUR</span></td>
+              <td>LINDEN</td>
+              <td class="lv-board-dir">NB</td>
+              <td class="lv-board-r">8 MIN</td>
+            </tr>
+            <tr>
+              <td><span class="lv-badge" style="--c: var(--cta-red)">RED</span></td>
+              <td>HOWARD</td>
+              <td class="lv-board-dir">NB</td>
+              <td class="lv-board-r">11 MIN</td>
+            </tr>
+            <tr>
+              <td><span class="lv-badge" style="--c: var(--cta-brown)">BRN</span></td>
+              <td>LOOP</td>
+              <td class="lv-board-dir">SB</td>
+              <td class="lv-board-r">14 MIN</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="lv-board-foot">
+          <span>AUTO-REFRESH · 30S</span>
+          <span>DATA · CHICAGO TRANSIT AUTHORITY</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- CLOSING -->
+    <section class="lv-finale">
+      <div class="lv-finale-inner">
+        <div class="lv-kicker lv-kicker-invert">
+          <span class="lv-kicker-num">05</span>
+          <span class="lv-kicker-rule"></span>
+          <span class="lv-kicker-text">READY</span>
+        </div>
+        <h2 class="lv-finale-title">
+          Next stop: <em>your</em><br>commute.
+        </h2>
+        <p class="lv-finale-sub">Free forever. 30 seconds to sign up.</p>
+        <a href="#register" class="lv-cta-primary lv-cta-invert">
+          START TRACKING <span class="lv-arrow">→</span>
+        </a>
+        <div class="lv-finale-meta">
+          <span>NO CARD · NO ADS · NO TRACKING</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="lv-footer">
+      <div class="lv-footer-grid">
+        <div class="lv-footer-brand-col">
+          <a href="#" class="lv-brand">
+            <span class="lv-brand-mark">L</span>
+            <span class="lv-brand-name">ON THE LOOP</span>
+          </a>
+          <p class="lv-footer-tag">Live Chicago transit, in your pocket.</p>
+          <div class="lv-footer-mini-loop" aria-hidden="true">●────●────●────●</div>
+        </div>
+        <div class="lv-footer-col">
+          <h5>Product</h5>
+          <a href="#login">Sign in</a>
+          <a href="#register">Get started</a>
+        </div>
+        <div class="lv-footer-col">
+          <h5>Legal</h5>
+          <button type="button" data-open-modal="privacy-modal">Privacy</button>
+          <button type="button" data-open-modal="terms-modal">Terms</button>
+        </div>
+        <div class="lv-footer-col">
+          <h5>Chicago</h5>
+          <span class="lv-footer-muted">Made on the L</span>
+          <span class="lv-footer-muted">Not affiliated with CTA</span>
+        </div>
+      </div>
+      <div class="lv-footer-rule"></div>
+      <div class="lv-footer-bottom">
+        <span>© 2026 · ON THE LOOP</span>
+        <span class="lv-footer-ascii">══ · ══ ● ══ · ══</span>
+        <span>CHICAGO, IL · 60607</span>
+      </div>
+    </footer>
   </div>
 
   <!-- AUTH VIEW -->
   <div id="auth-view" class="auth-container">
-    <div class="card auth-card">
-      <div class="logo-pulse">⟲</div>
-      <h1 style="font-weight: 800; margin-bottom: 8px;">LOOP</h1>
-      <p id="auth-subtitle" style="color: var(--text-secondary); margin-bottom: 40px;">ENTER CREDENTIALS</p>
+    <pre class="auth-loop-bg" aria-hidden="true">
+  ╔════════ LAKE ════════╗
+  ║  ●────●────●────●    ║
+  ║  │                │  ║
+  ║  ●   THE LOOP   ●   ║
+  ║  │                │  ║
+  ║  ●────●────●────●    ║
+  ╚═══ VAN BUREN ════════╝
+    </pre>
+    <div class="auth-card">
+      <div class="auth-platform" aria-hidden="true">
+        <span class="auth-platform-dot"></span>
+        <span>PLATFORM 01</span>
+        <span class="auth-platform-sep">·</span>
+        <span>BOARDING</span>
+      </div>
+      <div class="logo-pulse">L</div>
+      <h1>ON THE <span class="sub">LOOP</span></h1>
+      <p class="auth-tagline" aria-hidden="true">Chicago transit, <em>in your</em> pocket.</p>
+      <p id="auth-subtitle">Sign in to continue</p>
 
       <form id="auth-form">
-        <div style="margin-bottom: 16px;">
-          <input type="tel" id="auth-phone" class="input-launch" placeholder="Phone Number" required autocomplete="tel">
+        <div style="margin-bottom: 12px;">
+          <input type="email" id="auth-email" class="input-launch" placeholder="Email" required autocomplete="email">
         </div>
-        <div style="margin-bottom: 32px;">
+        <div id="auth-name-wrap" class="hidden" style="margin-bottom: 12px;">
+          <input type="text" id="auth-name" class="input-launch" placeholder="Display name (optional)" autocomplete="name">
+        </div>
+        <div style="margin-bottom: 22px;">
           <input type="password" id="auth-password" class="input-launch" placeholder="Password" required
             autocomplete="current-password">
         </div>
-        <button type="submit" id="auth-submit-btn" class="btn btn-shimmer" style="width: 100%;">Login</button>
+        <button type="submit" id="auth-submit-btn" class="btn-shimmer" style="width: 100%;">Sign In</button>
       </form>
 
-      <div style="margin-top: 24px; text-align: center;">
-        <button id="auth-toggle-btn" class="text-btn"
-          style="color: var(--text-secondary); font-size: 0.9rem; background: none; border: none; cursor: pointer; text-decoration: underline;">Need
-          an account? Register</button>
+      <div class="auth-toggle-wrap">
+        <button id="auth-toggle-btn" class="text-btn">Need an account? Register</button>
       </div>
 
-      <div id="auth-error"
-        style="color: var(--cta-red); margin-top: 24px; font-family: var(--font-mono); font-size: 0.8rem; display: none;">
+      <div id="auth-error" class="hidden"></div>
+
+      <div class="auth-ascii-foot" aria-hidden="true">●────●────●────●────●</div>
+      <div class="auth-legal" aria-hidden="true">
+        <a href="#landing">← BACK TO HOME</a>
+        <span>ONTHELOOP.APP</span>
       </div>
     </div>
   </div>
@@ -56,29 +516,31 @@
 
     <header class="app-header">
       <div class="brand-mini">
-        <span>⟲</span> LOOP <span style="opacity: 0.5; font-weight: 400;">v2.0</span>
+        <span class="logo-dot">L</span>
+        <span>ON THE LOOP</span>
+        <span class="brand-mini-sep" aria-hidden="true">·</span>
+        <span class="brand-mini-meta" aria-hidden="true">DASHBOARD</span>
       </div>
 
       <div class="flex items-center gap-4">
-        <button id="theme-toggle" class="icon-btn" title="Toggle Theme">
-          <span class="sun">☼</span><span class="moon" style="display:none">☾</span>
+        <button id="theme-toggle" class="icon-btn" title="Toggle theme" aria-label="Toggle theme">
+          <span class="sun">☀</span><span class="moon" style="display:none">☾</span>
         </button>
 
         <div style="position: relative;">
           <div class="user-pill" id="user-menu-btn">
-            <div class="live-dot"></div>
-            <span id="user-phone-display">USER</span>
+            <span class="live-dot"></span>
+            <span id="user-display">User</span>
           </div>
-          <!-- Dropdown -->
           <div id="user-menu-dropdown" class="hidden"
-            style="position: absolute; top: calc(100% + 8px); right: 0; width: 160px; padding: 6px; z-index: 9999; display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--border-light); background: var(--surface-2); backdrop-filter: blur(12px); border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.5);">
+            style="position: absolute; top: calc(100% + 8px); right: 0; width: 180px; padding: 6px; z-index: 9999; display: flex; flex-direction: column; gap: 2px; border-radius: 12px;">
             <button id="profile-btn" class="text-btn"
-              style="text-align: left; padding: 10px 12px; width: 100%; border-radius: 8px; color: var(--text-primary); display: flex; align-items: center; gap: 10px; background: transparent; border: none; font-size: 0.9rem; font-weight: 500; transition: background 0.2s;">
-              <span style="opacity: 0.7;">👤</span> Profile
+              style="text-align: left; padding: 10px 12px; width: 100%; border-radius: 8px; display: flex; align-items: center; gap: 10px; background: transparent; border: none; font-size: 0.9rem; font-weight: 500;">
+              <span>👤</span> Profile
             </button>
             <button id="logout-btn" class="text-btn"
-              style="text-align: left; padding: 10px 12px; width: 100%; border-radius: 8px; color: var(--cta-red); display: flex; align-items: center; gap: 10px; background: transparent; border: none; font-size: 0.9rem; font-weight: 500; transition: background 0.2s;">
-              <span style="opacity: 0.7;">🚪</span> Log Out
+              style="text-align: left; padding: 10px 12px; width: 100%; border-radius: 8px; color: var(--danger) !important; display: flex; align-items: center; gap: 10px; background: transparent; border: none; font-size: 0.9rem; font-weight: 500;">
+              <span>🚪</span> Log out
             </button>
           </div>
         </div>
@@ -90,38 +552,61 @@
       <!-- MAIN PANEL -->
       <div class="main-panel">
 
-        <!-- HERO TICKET (Up Next) -->
+        <!-- PAGE HEADER — transit-signage platform header -->
+        <div id="welcome-card" class="welcome-card">
+          <div class="welcome-kicker" aria-hidden="true">
+            <span class="welcome-kicker-num">00</span>
+            <span class="welcome-kicker-rule"></span>
+            <span class="welcome-kicker-text">YOUR PLATFORM</span>
+          </div>
+          <div class="welcome-icon" aria-hidden="true">🚇</div>
+          <div class="welcome-meta">
+            <span class="welcome-weekday-wrap"><span id="welcome-weekday">Today</span></span>
+            <span class="welcome-dot">·</span>
+            <span>Chicago</span>
+            <span class="welcome-dot">·</span>
+            <span class="welcome-clock">
+              <span id="welcome-time" class="welcome-time">--:--</span>
+              <span class="welcome-meridiem" id="welcome-meridiem">AM</span>
+            </span>
+          </div>
+          <h1 class="welcome-greeting" id="welcome-greeting">Good evening</h1>
+          <p class="welcome-sub">
+            Ask the assistant anything — <em>"next Red Line from Belmont"</em> or
+            <em>"trip from Wrigley to Willis Tower"</em>. Save routes to get live
+            arrivals on tap.
+          </p>
+        </div>
+
+        <!-- HERO "Up Next" -->
         <div id="next-trip-card" class="card hero-ticket hidden">
           <div class="ticket-header">
             <div>
-              <div class="ticket-label">UP NEXT</div>
+              <div class="ticket-label">Up next</div>
               <div class="ticket-route" id="nt-name">Red Line</div>
             </div>
             <div class="ticket-label" id="nt-dest">95th/Dan Ryan</div>
           </div>
-
           <div class="ticket-main">
-            <div class="arrival-time" id="nt-time">--</div>
-            <div class="arrival-unit">MINUTES</div>
+            <span class="arrival-time" id="nt-time">--</span>
+            <span class="arrival-unit">min away</span>
           </div>
         </div>
 
         <!-- ALERTS -->
         <div class="alert-section">
           <div class="flex justify-between items-center">
-            <h3 class="section-title">Active Alerts</h3>
-            <button id="add-schedule-btn" class="icon-btn"
-              style="width: 24px; height: 24px; font-size: 1.2rem;">+</button>
+            <h3 class="section-title" data-icon="🔔">Scheduled alerts</h3>
+            <button id="add-schedule-btn" class="icon-btn" title="Add alert" aria-label="Add alert">+</button>
           </div>
-          <div id="schedules-list" class="flex-col gap-2"></div>
+          <div id="schedules-list" class="flex-col"></div>
         </div>
 
         <!-- FAVORITES -->
         <div class="fav-section">
-          <div class="flex justify-between items-center" style="margin-bottom: 16px;">
-            <h3 class="section-title">Quick Access</h3>
-            <button id="add-favorite-btn" class="icon-btn"
-              style="width: 24px; height: 24px; font-size: 1.2rem;">+</button>
+          <div class="flex justify-between items-center">
+            <h3 class="section-title" data-icon="📌">Saved routes</h3>
+            <button id="add-favorite-btn" class="icon-btn" title="Add route" aria-label="Add route">+</button>
           </div>
           <div id="favorites-list" class="fav-grid"></div>
         </div>
@@ -131,92 +616,113 @@
       <!-- ASSISTANT PANEL -->
       <div class="assistant-panel">
         <div class="terminal-header">
-          <div><span style="color: var(--cta-green);">●</span> TRANSIT_TERMINAL_V1</div>
-          <button id="clear-terminal-btn" class="icon-btn" title="Clear Terminal"
-            style="font-size: 0.8rem; opacity: 0.5;">🗑️</button>
+          <div class="chat-heading"><span class="chat-emoji" aria-hidden="true">💬</span>Transit assistant</div>
+          <button id="clear-terminal-btn" class="icon-btn" title="Clear conversation"
+            style="font-size: 0.8rem;">⟲</button>
         </div>
 
         <div id="chat-messages" class="terminal-body">
-          <div class="chat-bubble bot">System ready. Awaiting input...</div>
+          <div class="chat-bubble bot">Hi — ask me anything. "Next Red Line from Belmont?" or "Trip from Wrigley to Willis Tower".</div>
         </div>
 
+        <div class="quick-asks" id="quick-asks">
+          <button type="button" class="quick-chip" data-q="Next Red Line from Belmont">🚇 Red Line from Belmont</button>
+          <button type="button" class="quick-chip" data-q="When is the next 22 bus at Clark and Belmont">🚌 22 at Clark &amp; Belmont</button>
+          <button type="button" class="quick-chip" data-q="Trip from Wrigley Field to Willis Tower">🧭 Wrigley → Willis</button>
+        </div>
+
+        <div id="chat-suggestion" class="chat-suggestion hidden" aria-live="polite"></div>
+
         <form id="chat-form" class="terminal-input-area">
-          <span class="prompt-char">></span>
-          <input type="text" id="chat-input" class="terminal-input" placeholder="Type command..." autocomplete="off"
-            required>
+          <span class="prompt-char">@</span>
+          <input type="text" id="chat-input" class="terminal-input" placeholder="Ask about routes, arrivals, or trips…" autocomplete="off" required>
+          <button type="submit" class="chat-send" aria-label="Send">↵</button>
         </form>
       </div>
 
     </div>
   </div>
 
-  <!-- MODALS -->
+  <!-- MODAL BACKDROP -->
   <div id="modal-backdrop" class="modal-backdrop hidden"></div>
 
   <!-- PROFILE MODAL -->
   <div id="profile-modal" class="modal hidden">
     <div class="modal-header">
-      <h3>User Profile</h3>
-      <button class="modal-close icon-btn">✕</button>
+      <h3>Profile</h3>
+      <button class="modal-close icon-btn" aria-label="Close">✕</button>
     </div>
     <div class="modal-body">
 
-      <!-- Profile Tabs -->
-      <div class="profile-tabs"
-        style="display: flex; gap: 12px; margin-bottom: 24px; border-bottom: 1px solid var(--border-light); padding-bottom: 12px;">
-        <button class="tab-btn active" data-tab="general"
-          style="background: none; border: none; color: var(--text-primary); font-weight: 600; padding: 8px 12px; border-radius: 6px; cursor: pointer; transition: 0.2s;">General</button>
-        <button class="tab-btn" data-tab="security"
-          style="background: none; border: none; color: var(--text-secondary); font-weight: 600; padding: 8px 12px; border-radius: 6px; cursor: pointer; transition: 0.2s;">Security</button>
+      <div class="profile-tabs" style="display: flex; gap: 20px; margin-bottom: 24px;">
+        <button class="tab-btn active" data-tab="general" style="background: none; border: none; cursor: pointer; font-size: 0.92rem;">General</button>
+        <button class="tab-btn" data-tab="security" style="background: none; border: none; cursor: pointer; font-size: 0.92rem;">Security</button>
       </div>
 
       <!-- General Tab -->
       <div id="tab-general" class="tab-content">
-        <div style="text-align: center; margin-bottom: 24px;">
+        <div style="text-align: center; margin-bottom: 22px;">
           <div
-            style="width: 80px; height: 80px; background: var(--surface-3); border-radius: 50%; margin: 0 auto 16px; display: flex; align-items: center; justify-content: center; font-size: 2rem; color: var(--text-secondary);">
+            style="width: 72px; height: 72px; background: var(--cta-primary); border-radius: 50%; margin: 0 auto 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; color: #fff; font-weight: 800;">
             👤
           </div>
-          <h2 id="profile-phone-display" style="margin: 0; font-size: 1.5rem;">Loading...</h2>
-          <p id="profile-joined-display" style="margin: 4px 0 0; color: var(--text-secondary); font-size: 0.9rem;">
-            Member since ...</p>
+          <h2 id="profile-email-display" style="margin: 0; font-size: 1.2rem; color: var(--ink); font-weight: 700;">Loading…</h2>
+          <p id="profile-joined-display" style="margin: 4px 0 0; color: var(--ink-3); font-size: 0.85rem;">
+            Member since …</p>
         </div>
 
-        <form id="profile-update-form" style="display: flex; flex-direction: column; gap: 16px;">
+        <form id="profile-update-form" style="display: flex; flex-direction: column; gap: 12px;">
           <div class="input-group">
-            <label for="profile-name"
-              style="display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-secondary);">Display
-              Name</label>
-            <input type="text" id="profile-name" class="input-launch" placeholder="Enter your name">
+            <label for="profile-name">Display name</label>
+            <input type="text" id="profile-name" class="form-input" placeholder="Your name">
           </div>
 
           <div class="input-group">
-            <label for="profile-email"
-              style="display: block; margin-bottom: 8px; font-size: 0.9rem; color: var(--text-secondary);">Email
-              Address</label>
-            <input type="email" id="profile-email" class="input-launch" placeholder="Enter your email">
+            <label for="profile-email">Email address</label>
+            <input type="email" id="profile-email" class="form-input" placeholder="you@example.com">
           </div>
 
-          <div id="profile-msg"
-            style="display: none; padding: 10px; border-radius: 6px; font-size: 0.9rem; text-align: center;"></div>
+          <div class="input-group" style="display: flex; align-items: center; gap: 10px;">
+            <input type="checkbox" id="profile-email-notifications" style="width: 18px; height: 18px; accent-color: var(--cta-primary);">
+            <label for="profile-email-notifications" style="margin: 0; font-size: 0.9rem; color: var(--ink-2); font-weight: 500;">
+              Also send arrival alerts by email
+            </label>
+          </div>
 
-          <button type="submit" class="btn-shimmer" style="width: 100%; margin-top: 8px;">
-            Save Changes
+          <div id="profile-msg" style="display: none; padding: 10px; border-radius: 6px; font-size: 0.88rem; text-align: center;"></div>
+
+          <button type="submit" class="btn-shimmer" style="width: 100%; margin-top: 6px;">
+            Save changes
           </button>
         </form>
+
+        <div style="margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--border);">
+          <h4 style="margin: 0 0 10px; color: var(--ink-3); text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.14em; font-weight: 700;">
+            Telegram bot
+          </h4>
+          <p id="telegram-status" style="margin: 0 0 12px; color: var(--ink-2); font-size: 0.88rem;">
+            Checking…
+          </p>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button type="button" id="link-telegram-btn" class="btn-shimmer" style="flex: 1;">
+              Link Telegram
+            </button>
+            <button type="button" id="unlink-telegram-btn" class="text-btn hidden"
+              style="color: var(--danger); background: transparent; border: 1px solid var(--danger); padding: 10px 16px; border-radius: 10px; cursor: pointer; font-weight: 600;">
+              Unlink
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- Security Tab -->
       <div id="tab-security" class="tab-content hidden">
-        <h4
-          style="margin-bottom: 16px; color: var(--text-secondary); text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px;">
-          Change Password</h4>
-        <form id="change-password-form" style="display: flex; flex-direction: column; gap: 16px;">
-          <input type="password" id="new-password" class="input-launch" placeholder="New Password (min 6 chars)"
-            required>
-          <div id="password-msg"
-            style="display: none; padding: 10px; border-radius: 6px; font-size: 0.9rem; text-align: center;"></div>
-          <button type="submit" class="btn-shimmer" style="width: 100%;">Update Password</button>
+        <h4 style="margin-bottom: 14px; color: var(--ink-3); text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.14em; font-weight: 700;">
+          Change password</h4>
+        <form id="change-password-form" style="display: flex; flex-direction: column; gap: 12px;">
+          <input type="password" id="new-password" class="form-input" placeholder="New password (min 6 chars)" required>
+          <div id="password-msg" style="display: none; padding: 10px; border-radius: 6px; font-size: 0.88rem; text-align: center;"></div>
+          <button type="submit" class="btn-shimmer" style="width: 100%;">Update password</button>
         </form>
       </div>
 
@@ -226,63 +732,57 @@
   <!-- FAVORITE MODAL -->
   <div id="favorite-modal" class="modal hidden">
     <div class="modal-header">
-      <h2 class="modal-title" style="margin:0;">Add Route</h2>
-      <button class="icon-btn modal-close">×</button>
+      <h2>Add route</h2>
+      <button class="icon-btn modal-close" aria-label="Close">✕</button>
     </div>
     <div class="modal-body">
       <form id="favorite-form">
         <!-- Magic Fill Section -->
-        <div class="magic-fill-container"
-          style="margin-bottom: 20px; padding: 16px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-            <label style="font-size: 13px; font-weight: 600; color: var(--text-primary);">🤖 Quick Add with AI</label>
-            <span style="font-size: 11px; color: var(--text-secondary); font-family: monospace;">BETA</span>
+        <div class="magic-fill-container" style="margin-bottom: 18px; padding: 14px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+            <label style="font-size: 0.85rem; font-weight: 700;">✨ Quick add with AI</label>
+            <span style="font-size: 0.65rem; color: var(--ink-3); font-family: var(--font-mono); background: var(--surface); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border);">BETA</span>
           </div>
           <div style="display: flex; gap: 8px; margin-bottom: 8px;">
             <input type="text" id="magic-route-input" class="form-input"
-              placeholder="Try: 'Red Line from Howard to Loop' or '157 from Taylor & Racine'"
-              style="margin-bottom: 0; font-size: 14px;">
+              placeholder="e.g. 'Red Line from Howard to Loop'" style="margin: 0;">
             <button type="button" id="magic-fill-btn" class="btn-primary"
-              style="padding: 0 20px; white-space: nowrap; font-size: 13px;">Fill</button>
+              style="padding: 0 18px; white-space: nowrap; font-size: 0.85rem;">Fill</button>
           </div>
-          <div style="font-size: 11px; color: var(--text-secondary); line-height: 1.5;">
-            <div style="margin-bottom: 2px;">Examples:</div>
-            <div style="opacity: 0.7;">• "Blue Line to O'Hare from Clark/Lake"</div>
-            <div style="opacity: 0.7;">• "157 bus Westbound from Ogden"</div>
-            <div style="opacity: 0.7;">• "1029 S Lytle to 820 S Wolcott" (addresses)</div>
+          <div style="font-size: 0.75rem; color: var(--ink-3); line-height: 1.6;">
+            Try: "Blue Line to O'Hare from Clark/Lake" · "157 Westbound from Ogden"
           </div>
         </div>
 
-        <div class="form-group" style="display: flex; gap: 16px; margin-bottom: 24px;">
-          <label style="flex:1; cursor:pointer;"><input type="radio" name="route-type" value="BUS" checked> <span
-              style="font-weight:600;">BUS</span></label>
-          <label style="flex:1; cursor:pointer;"><input type="radio" name="route-type" value="TRAIN"> <span
-              style="font-weight:600;">TRAIN</span></label>
+        <div class="form-group" style="display: flex; gap: 12px; margin-bottom: 18px;">
+          <label style="flex:1; cursor:pointer; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2);">
+            <input type="radio" name="route-type" value="BUS" checked style="accent-color: var(--cta-primary);"> <span style="font-weight: 700;">🚌 Bus</span>
+          </label>
+          <label style="flex:1; cursor:pointer; display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2);">
+            <input type="radio" name="route-type" value="TRAIN" style="accent-color: var(--cta-primary);"> <span style="font-weight: 700;">🚇 Train</span>
+          </label>
         </div>
 
         <div id="bus-fields" class="form-group">
-          <input type="text" id="bus-route" class="form-input" placeholder="Route Number (e.g. 147)"
-            style="margin-bottom: 12px;">
-          <label
-            style="display:block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Direction</label>
-          <select id="bus-direction" class="form-select" style="margin-bottom: 12px;">
-            <option value="">Select Direction</option>
+          <input type="text" id="bus-route" class="form-input" placeholder="Route number (e.g. 147)" style="margin-bottom: 10px;">
+          <label>Direction</label>
+          <select id="bus-direction" class="form-select" style="margin-bottom: 10px;">
+            <option value="">Select direction</option>
           </select>
-          <label style="display:block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Boarding Stop
-            (where you get on)</label>
-          <select id="bus-stop" class="form-select" style="margin-bottom: 12px;">
-            <option value="">Select Stop</option>
+          <label>Boarding stop</label>
+          <select id="bus-stop" class="form-select" style="margin-bottom: 10px;">
+            <option value="">Select stop</option>
           </select>
-          <label style="display:block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Alighting
-            Stop (where you get off) - Optional</label>
+          <label>Alighting stop <span style="color: var(--ink-3); font-weight: 400;">(optional)</span></label>
           <select id="bus-alighting-stop" class="form-select">
-            <option value="">Select Stop (Optional)</option>
+            <option value="">Select stop (optional)</option>
           </select>
         </div>
 
         <div id="train-fields" class="form-group hidden">
-          <select id="train-line" class="form-select" style="margin-bottom: 12px;">
-            <option value="">Select Line</option>
+          <label>Line</label>
+          <select id="train-line" class="form-select" style="margin-bottom: 10px;">
+            <option value="">Select line</option>
             <option value="Red">Red Line</option>
             <option value="Blue">Blue Line</option>
             <option value="Brown">Brown Line</option>
@@ -292,47 +792,49 @@
             <option value="Purple">Purple Line</option>
             <option value="Yellow">Yellow Line</option>
           </select>
-          <label
-            style="display:block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Direction</label>
-          <select id="train-direction" class="form-select" style="margin-bottom: 12px;">
-            <option value="">Select Direction</option>
+          <label>Direction</label>
+          <select id="train-direction" class="form-select" style="margin-bottom: 10px;">
+            <option value="">Select direction</option>
           </select>
-          <label style="display:block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Boarding
-            Station (where you get on)</label>
-          <select id="train-station" class="form-select" style="margin-bottom: 12px;">
-            <option value="">Select Station</option>
+          <label>Boarding station</label>
+          <select id="train-station" class="form-select" style="margin-bottom: 10px;">
+            <option value="">Select station</option>
           </select>
-          <label style="display:block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary);">Alighting
-            Station (where you get off) - Optional</label>
+          <label>Alighting station <span style="color: var(--ink-3); font-weight: 400;">(optional)</span></label>
           <select id="train-alighting-station" class="form-select">
-            <option value="">Select Station (Optional)</option>
+            <option value="">Select station (optional)</option>
           </select>
         </div>
 
         <div class="flex gap-4 form-group">
-          <input type="text" id="boarding-stop-name" class="form-input" placeholder="From (Label)" required>
-          <input type="text" id="alighting-stop-name" class="form-input" placeholder="To (Label)" required>
+          <input type="text" id="boarding-stop-name" class="form-input" placeholder="From (label)" required>
+          <input type="text" id="alighting-stop-name" class="form-input" placeholder="To (label)" required>
         </div>
 
-        <input type="text" id="favorite-name" class="form-input" placeholder="Friendly Name (e.g. Home)" required
-          style="margin-bottom: 24px;">
+        <input type="text" id="favorite-name" class="form-input" placeholder="Friendly name (e.g. Home)" required
+          style="margin-bottom: 18px;">
 
-        <button type="submit" class="btn btn-shimmer" style="width: 100%;">Save Configuration</button>
+        <button type="submit" class="btn-shimmer" style="width: 100%;">Save route</button>
       </form>
     </div>
   </div>
 
-  <div id="schedule-modal" class="modal-backdrop">
-    <div class="card modal-card">
-      <div class="flex justify-between items-center mb-4" style="margin-bottom: 24px;">
-        <h2 class="modal-title" style="margin:0;">New Alert</h2>
-        <button class="modal-close icon-btn">×</button>
-      </div>
+  <!-- SCHEDULE MODAL -->
+  <div id="schedule-modal" class="modal hidden">
+    <div class="modal-header">
+      <h2>New alert</h2>
+      <button class="modal-close icon-btn" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
       <form id="schedule-form">
-        <select id="schedule-favorite" class="form-select" required style="margin-bottom: 16px;"></select>
-        <input type="time" id="schedule-time" class="form-input" required style="margin-bottom: 24px;">
+        <label style="display:block; font-size: 0.78rem; font-weight: 600; color: var(--ink-2); margin-bottom: 6px;">Route</label>
+        <select id="schedule-favorite" class="form-select" required style="margin-bottom: 14px;"></select>
 
-        <div style="display: flex; justify-content: space-between; margin-bottom: 24px;">
+        <label style="display:block; font-size: 0.78rem; font-weight: 600; color: var(--ink-2); margin-bottom: 6px;">Time</label>
+        <input type="time" id="schedule-time" class="form-input" required style="margin-bottom: 18px;">
+
+        <label style="display:block; font-size: 0.78rem; font-weight: 600; color: var(--ink-2); margin-bottom: 10px;">Repeat</label>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 22px;">
           <label class="day-check"><input type="checkbox" name="day" value="1"><span>M</span></label>
           <label class="day-check"><input type="checkbox" name="day" value="2"><span>T</span></label>
           <label class="day-check"><input type="checkbox" name="day" value="3"><span>W</span></label>
@@ -341,33 +843,68 @@
           <label class="day-check"><input type="checkbox" name="day" value="6"><span>S</span></label>
           <label class="day-check"><input type="checkbox" name="day" value="0"><span>S</span></label>
         </div>
-        <style>
-          .day-check input {
-            display: none;
-          }
 
-          .day-check span {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            border: 1px solid var(--surface-border);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: 0.2s;
-            font-family: var(--font-mono);
-          }
-
-          .day-check input:checked+span {
-            background: var(--text-primary);
-            color: var(--bg-obsidian);
-            border-color: var(--text-primary);
-          }
-        </style>
-
-        <button type="submit" class="btn btn-shimmer" style="width: 100%;">Set Alert</button>
+        <button type="submit" class="btn-shimmer" style="width: 100%;">Set alert</button>
       </form>
+    </div>
+  </div>
+
+  <!-- PRIVACY MODAL -->
+  <div id="privacy-modal" class="modal hidden">
+    <div class="modal-header">
+      <h2>Privacy</h2>
+      <button class="modal-close icon-btn" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="legal-body">
+        <p style="color: var(--ink-3); font-size: 0.8rem;">Last updated April 20, 2026.</p>
+
+        <h4>What we collect</h4>
+        <p>Just the essentials: your email, an optional display name, a hashed password, the routes you save, and the alerts you schedule. If you link Telegram, we store your chat ID so we can send you pings.</p>
+
+        <h4>What we don't collect</h4>
+        <p>We don't track your location, read your device ID, or sell anything to anyone. There are no third-party analytics, no ad networks, no fingerprinting.</p>
+
+        <h4>Where your data lives</h4>
+        <p>On our servers, in a Postgres database. CTA arrival data is requested on-demand from the Chicago Transit Authority's public APIs — we don't proxy your identity to them.</p>
+
+        <h4>Deleting your data</h4>
+        <p>Sign in → Profile → change password or unlink Telegram anytime. To fully delete your account and everything in it, email <a href="mailto:hello@ctatrack.app">hello@ctatrack.app</a> and we'll wipe it within 7 days.</p>
+
+        <h4>Cookies</h4>
+        <p>A single session token stored in your browser's localStorage. That's it. No third-party cookies.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- TERMS MODAL -->
+  <div id="terms-modal" class="modal hidden">
+    <div class="modal-header">
+      <h2>Terms</h2>
+      <button class="modal-close icon-btn" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="legal-body">
+        <p style="color: var(--ink-3); font-size: 0.8rem;">Last updated April 20, 2026.</p>
+
+        <h4>Use at your own risk</h4>
+        <p>On the Loop surfaces arrival times from the Chicago Transit Authority's public APIs. The data can be late, wrong, or missing. Don't use it as your only signal for time-sensitive trips.</p>
+
+        <h4>Not affiliated with CTA</h4>
+        <p>This is an independent project. We are not the Chicago Transit Authority, we don't speak for them, and we don't guarantee their data.</p>
+
+        <h4>Fair use</h4>
+        <p>Don't scrape us. Don't use the service to send spam. Don't try to break things. If you do, we'll cut off your access.</p>
+
+        <h4>Account</h4>
+        <p>Keep your password private. You're responsible for activity on your account. We can suspend accounts that violate these terms.</p>
+
+        <h4>Changes</h4>
+        <p>We may update these terms. If we do, we'll note it at the top. Continuing to use the service means you accept the updated terms.</p>
+
+        <h4>Contact</h4>
+        <p>Questions: <a href="mailto:hello@ctatrack.app">hello@ctatrack.app</a></p>
+      </div>
     </div>
   </div>
 

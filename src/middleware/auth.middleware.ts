@@ -5,7 +5,7 @@ import logger from '../utils/logger';
 export interface AuthRequest extends Request {
   user?: {
     userId: string;
-    phoneNumber: string;
+    email: string;
   };
 }
 
@@ -15,7 +15,6 @@ export const authMiddleware = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    // Get token from header
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -23,15 +22,12 @@ export const authMiddleware = async (
       return;
     }
 
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-
-    // Verify token
+    const token = authHeader.substring(7);
     const decoded = AuthService.verifyToken(token);
 
-    // Attach user to request
     req.user = {
       userId: decoded.userId,
-      phoneNumber: decoded.phoneNumber,
+      email: decoded.email,
     };
 
     next();
@@ -39,4 +35,23 @@ export const authMiddleware = async (
     logger.error('Auth middleware error:', error);
     res.status(401).json({ error: 'Invalid or expired token' });
   }
+};
+
+// Populates req.user if a valid bearer token is present, but never rejects the
+// request. Used by endpoints that benefit from user context (favorites lookup)
+// but should still work for anonymous callers.
+export const optionalAuthMiddleware = async (
+  req: AuthRequest,
+  _res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return next();
+  try {
+    const decoded = AuthService.verifyToken(authHeader.substring(7));
+    req.user = { userId: decoded.userId, email: decoded.email };
+  } catch {
+    // Ignore — treat as anonymous.
+  }
+  next();
 };

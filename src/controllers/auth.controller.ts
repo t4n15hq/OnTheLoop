@@ -1,29 +1,21 @@
 import { Request, Response } from 'express';
 import { body, validationResult } from 'express-validator';
 import { AuthService } from '../services/auth.service';
-import { SMSService } from '../services/sms.service';
+import { AuthRequest } from '../middleware/auth.middleware';
+import config from '../config';
 import logger from '../utils/logger';
 
 export class AuthController {
-  /**
-   * Register a new user
-   */
   static async register(req: Request, res: Response): Promise<void> {
     try {
-      // Validate request
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         res.status(400).json({ errors: errors.array() });
         return;
       }
 
-      const { phoneNumber, password } = req.body;
-
-      // Format phone number
-      const formattedPhone = SMSService.formatPhoneNumber(phoneNumber);
-
-      // Register user
-      const result = await AuthService.register(formattedPhone, password);
+      const { email, password, name } = req.body;
+      const result = await AuthService.register(email, password, name);
 
       res.status(201).json({
         message: 'User registered successfully',
@@ -36,25 +28,16 @@ export class AuthController {
     }
   }
 
-  /**
-   * Login user
-   */
   static async login(req: Request, res: Response): Promise<void> {
     try {
-      // Validate request
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         res.status(400).json({ errors: errors.array() });
         return;
       }
 
-      const { phoneNumber, password } = req.body;
-
-      // Format phone number
-      const formattedPhone = SMSService.formatPhoneNumber(phoneNumber);
-
-      // Login user
-      const result = await AuthService.login(formattedPhone, password);
+      const { email, password } = req.body;
+      const result = await AuthService.login(email, password);
 
       res.status(200).json({
         message: 'Login successful',
@@ -66,12 +49,9 @@ export class AuthController {
       res.status(401).json({ error: error.message || 'Login failed' });
     }
   }
-  /**
-   * Update password
-   */
-  static async updatePassword(req: Request, res: Response): Promise<void> {
+
+  static async updatePassword(req: AuthRequest, res: Response): Promise<void> {
     try {
-      // Validate request
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         res.status(400).json({ errors: errors.array() });
@@ -79,21 +59,17 @@ export class AuthController {
       }
 
       const { password } = req.body;
-      // @ts-ignore - User is attached by auth middleware
-      const userId = req.user.userId;
+      const userId = req.user!.userId;
 
       await AuthService.updatePassword(userId, password);
-
       res.status(200).json({ message: 'Password updated successfully' });
     } catch (error: any) {
       logger.error('Update password error:', error);
       res.status(400).json({ error: error.message || 'Failed to update password' });
     }
   }
-  /**
-   * Update profile
-   */
-  static async updateProfile(req: Request, res: Response): Promise<void> {
+
+  static async updateProfile(req: AuthRequest, res: Response): Promise<void> {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -101,54 +77,77 @@ export class AuthController {
         return;
       }
 
-      const { name, email } = req.body;
-      // @ts-ignore
-      const userId = req.user.userId;
+      const { name, email, emailNotifications } = req.body;
+      const userId = req.user!.userId;
 
-      const user = await AuthService.updateProfile(userId, { name, email });
-
+      const user = await AuthService.updateProfile(userId, { name, email, emailNotifications });
       res.status(200).json({ message: 'Profile updated successfully', user });
     } catch (error: any) {
       logger.error('Update profile error:', error);
       res.status(400).json({ error: error.message || 'Failed to update profile' });
     }
   }
+
+  /**
+   * Issue a one-time token that the user pastes to the Telegram bot
+   * via `t.me/<bot>?start=<token>` to link their account.
+   */
+  static async createTelegramLink(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      const token = await AuthService.createTelegramLinkToken(userId);
+
+      const botUsername = config.telegram.botUsername;
+      const deepLink = botUsername
+        ? `https://t.me/${botUsername}?start=${token}`
+        : null;
+
+      res.status(200).json({ token, deepLink, botUsername: botUsername || null });
+    } catch (error: any) {
+      logger.error('Create telegram link error:', error);
+      res.status(500).json({ error: error.message || 'Failed to create link' });
+    }
+  }
+
+  static async unlinkTelegram(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user!.userId;
+      await AuthService.unlinkTelegram(userId);
+      res.status(200).json({ message: 'Telegram unlinked' });
+    } catch (error: any) {
+      logger.error('Unlink telegram error:', error);
+      res.status(500).json({ error: error.message || 'Failed to unlink' });
+    }
+  }
 }
 
-// Validation middleware
 export const registerValidation = [
-  body('phoneNumber')
-    .notEmpty()
-    .withMessage('Phone number is required')
-    .isMobilePhone('any')
-    .withMessage('Invalid phone number'),
+  body('email')
+    .notEmpty().withMessage('Email is required')
+    .isEmail().withMessage('Invalid email')
+    .normalizeEmail(),
   body('password')
-    .notEmpty()
-    .withMessage('Password is required')
-    .isLength({ min: 6 })
-    .withMessage('Password must be at least 6 characters long'),
+    .notEmpty().withMessage('Password is required')
+    .isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
+  body('name').optional().trim().isLength({ min: 1 }),
 ];
 
 export const loginValidation = [
-  body('phoneNumber')
-    .notEmpty()
-    .withMessage('Phone number is required')
-    .isMobilePhone('any')
-    .withMessage('Invalid phone number'),
-  body('password')
-    .notEmpty()
-    .withMessage('Password is required'),
+  body('email')
+    .notEmpty().withMessage('Email is required')
+    .isEmail().withMessage('Invalid email')
+    .normalizeEmail(),
+  body('password').notEmpty().withMessage('Password is required'),
 ];
 
 export const passwordUpdateValidation = [
   body('password')
-    .notEmpty()
-    .withMessage('Password is required')
-    .isLength({ min: 6 })
-    .withMessage('Password must be at least 6 characters long'),
+    .notEmpty().withMessage('Password is required')
+    .isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
 ];
 
 export const profileUpdateValidation = [
-  body('name').optional().trim().isLength({ min: 2 }).withMessage('Name must be at least 2 characters'),
+  body('name').optional({ nullable: true }).trim(),
   body('email').optional().trim().isEmail().withMessage('Invalid email address'),
+  body('emailNotifications').optional().isBoolean(),
 ];

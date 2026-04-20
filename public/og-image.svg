@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <filter id="g" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="10" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#F5F3EC"/>
+      <stop offset="100%" stop-color="#EFEDE5"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#paper)"/>
+
+  <!-- rainbow edge -->
+  <g>
+    <rect x="0" y="0" width="150" height="10" fill="#C60C30"/>
+    <rect x="150" y="0" width="150" height="10" fill="#00A1DE"/>
+    <rect x="300" y="0" width="150" height="10" fill="#62361B"/>
+    <rect x="450" y="0" width="150" height="10" fill="#009B3A"/>
+    <rect x="600" y="0" width="150" height="10" fill="#F9461C"/>
+    <rect x="750" y="0" width="150" height="10" fill="#E27EA6"/>
+    <rect x="900" y="0" width="150" height="10" fill="#522398"/>
+    <rect x="1050" y="0" width="150" height="10" fill="#F9E300"/>
+  </g>
+
+  <g filter="url(#g)" stroke-width="4" fill="none" opacity="0.35">
+    <path d="M-40,140 C200,80 420,240 720,200 S1180,80 1240,160" stroke="#C60C30"/>
+    <path d="M-40,300 C260,360 480,240 760,320 S1200,380 1240,300" stroke="#00A1DE"/>
+    <path d="M-40,460 C300,400 520,540 800,480 S1220,440 1240,520" stroke="#009B3A"/>
+  </g>
+
+  <g transform="translate(80, 200)">
+    <text x="0" y="0" font-family="JetBrains Mono, ui-monospace, monospace" font-size="22" font-weight="600" fill="#6C6B63" letter-spacing="4">● PLATFORM 01 · BOARDING</text>
+
+    <text x="0" y="110" font-family="Space Grotesk, Inter, sans-serif" font-size="112" font-weight="700" fill="#0B0B09" letter-spacing="-4">ON THE</text>
+    <text x="0" y="230" font-family="Space Grotesk, Inter, sans-serif" font-size="112" font-weight="700" fill="#0B0B09" letter-spacing="-4">LOOP<tspan font-family="Instrument Serif, Georgia, serif" font-style="italic" font-weight="400" fill="#00A1DE">.</tspan></text>
+
+    <text x="0" y="310" font-family="Instrument Serif, Georgia, serif" font-style="italic" font-size="34" font-weight="400" fill="#3A3A36">Chicago transit, <tspan fill="#00A1DE">in your</tspan> pocket.</text>
+
+    <text x="0" y="360" font-family="JetBrains Mono, ui-monospace, monospace" font-size="18" font-weight="500" fill="#6C6B63" letter-spacing="3">LIVE CTA ARRIVALS · SAVED ROUTES · TELEGRAM PINGS</text>
+  </g>
+
+  <!-- L badge -->
+  <g transform="translate(1020, 160)">
+    <circle cx="60" cy="60" r="60" fill="#0B0B09"/>
+    <text x="60" y="82" font-family="Instrument Serif, Georgia, serif" font-style="italic" font-size="64" font-weight="500" fill="#F5F3EC" text-anchor="middle">L</text>
+  </g>
+
+  <!-- url -->
+  <text x="80" y="580" font-family="JetBrains Mono, ui-monospace, monospace" font-size="20" font-weight="600" fill="#0B0B09" letter-spacing="4">ONTHELOOP.APP</text>
+  <text x="1120" y="580" font-family="JetBrains Mono, ui-monospace, monospace" font-size="16" font-weight="500" fill="#6C6B63" letter-spacing="3" text-anchor="end">CHICAGO · 60607</text>
+</svg>

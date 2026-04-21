@@ -244,7 +244,7 @@ export class CTAController {
       // Let's look at how favorites are stored. They are tied to a user.
       // We'll try to find a favorite that matches the query string loosely.
 
-      if (!query || typeof query !== 'string') {
+      if (!query || typeof query !== 'string' || query.trim().length === 0) {
         res.status(400).json({ error: 'Transit query is required' });
         return;
       }

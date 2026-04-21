@@ -15,6 +15,29 @@ interface ParsedSMSQuery {
   destination?: string;
 }
 
+// Per-Gemini-call timeouts. Prevents any single slow upstream from hanging
+// the chat endpoint indefinitely. Budgets picked so total request time
+// stays under ~35s on the slowest path.
+const PARSE_QUERY_TIMEOUT_MS = 6_000;
+const DIRECTIONS_TIMEOUT_MS = 20_000;
+const PARSE_CONFIG_TIMEOUT_MS = 12_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
 /**
  * AI-powered SMS query handler using Gemini
  */
@@ -82,7 +105,11 @@ Respond ONLY with JSON:
 
 BE CONSERVATIVE: If you're unsure whether something is an address, assume it's a station/stop name.`;
 
-      const result = await model.generateContent(prompt);
+      const result = await withTimeout(
+        model.generateContent(prompt),
+        PARSE_CONFIG_TIMEOUT_MS,
+        'parseRouteConfig(primary)'
+      );
       const text = result.response.text();
       const jsonMatch = text.match(/\{[\s\S]*\}/);
 
@@ -276,7 +303,11 @@ BE CONSERVATIVE: If you're unsure whether something is an address, assume it's a
            "stopName": "Name of the boarding stop/station",
            "alightingName": "Name of the destination stop/station"
          }`;
-        const result2 = await model.generateContent(prompt2);
+        const result2 = await withTimeout(
+          model.generateContent(prompt2),
+          PARSE_CONFIG_TIMEOUT_MS,
+          'parseRouteConfig(fallback)'
+        );
         const text2 = result2.response.text();
         const jsonMatch2 = text2.match(/\{[\s\S]*\}/);
         if (jsonMatch2) {
@@ -367,7 +398,11 @@ Examples:
 "How do I get to Willis Tower from Northwestern?" -> {"intent": "transit_directions", "origin": "Northwestern", "destination": "Willis Tower"}
 "Show me my favorites" -> {"intent": "favorites"}`;
 
-      const result = await model.generateContent(prompt);
+      const result = await withTimeout(
+        model.generateContent(prompt),
+        PARSE_QUERY_TIMEOUT_MS,
+        'parseQuery'
+      );
       const response = result.response.text();
 
       logger.debug(`Gemini parse response: ${response}`);
@@ -387,7 +422,9 @@ Examples:
         destination: parsed.destination,
       };
     } catch (error) {
-      logger.error('Error parsing SMS query:', error);
+      // Timeouts return unknown intent so the controller can fall through to
+      // the ungrounded suggestion path instead of hanging.
+      logger.warn(`parseQuery failed: ${(error as Error).message}`);
       return { intent: 'unknown' };
     }
   }
@@ -531,7 +568,11 @@ Examples:
 
       const prompt = `Give CTA transit directions from "${origin}" to "${destination}". Return up to 5 concise steps and an estimated total time in minutes.`;
 
-      const result = await model.generateContent(prompt);
+      const result = await withTimeout(
+        model.generateContent(prompt),
+        DIRECTIONS_TIMEOUT_MS,
+        'handleTransitDirections'
+      );
       const raw = result.response.text();
 
       let parsed: { steps?: unknown; estTimeMinutes?: unknown };

@@ -24,6 +24,43 @@ const SEARCH_TOOL: Tool = { googleSearch: {} };
 // versions (Gemini 3, 3.1, …) become GA. Keeps us off preview-only IDs.
 const MODEL = 'gemini-flash-latest';
 
+// Per-Gemini-call timeouts. Without these, a single slow grounding call can
+// hang the whole chat response indefinitely (observed: 77s for a Maps lookup
+// when the query string had trailing noise like "Hyde Park on the CTA").
+const LOCATION_TIMEOUT_MS = 8_000;
+const SUGGESTION_TIMEOUT_MS = 18_000;
+// Fallback budget for the plain (ungrounded) call. Needs enough headroom to
+// actually generate — 6s was too tight and produced spurious graceful-error
+// responses on legit queries when the primary returned empty. 12s keeps
+// worst-case (endpoint resolve 10s + primary 18s + fallback 12s = 40s) under
+// the client's 45s ceiling.
+const FALLBACK_TIMEOUT_MS = 12_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+// Strip trailing trip-modifier phrases that ride along on the origin/dest
+// capture (e.g., "Hyde Park on the CTA" → "Hyde Park"). These phrases throw
+// off Maps grounding and make the lookup 10× slower.
+const ENDPOINT_MODIFIER_RE =
+  /\s+(?:on the cta|using cta|using the cta|by cta|on cta|via cta|by train|by bus|by transit|by public transit|using public transit|please|thanks?|thank you)\b.*$/i;
+function cleanEndpoint(raw: string): string {
+  return raw.replace(ENDPOINT_MODIFIER_RE, '').trim().replace(/^['"]|['"]$/g, '');
+}
+
 export class GeminiMapsService {
   private static ai = new GoogleGenAI({ apiKey: config.google.geminiApiKey });
 
@@ -43,11 +80,15 @@ export class GeminiMapsService {
       `Longitude: <decimal longitude>`;
 
     try {
-      const response = await this.ai.models.generateContent({
-        model: MODEL,
-        contents: prompt,
-        config: { tools: [MAPS_TOOL] },
-      });
+      const response = await withTimeout(
+        this.ai.models.generateContent({
+          model: MODEL,
+          contents: prompt,
+          config: { tools: [MAPS_TOOL] },
+        }),
+        LOCATION_TIMEOUT_MS,
+        `resolveLocation(${query.slice(0, 40)})`
+      );
 
       const text = response.text ?? '';
       const parsed = this.parseLocationResponse(text);
@@ -72,7 +113,10 @@ export class GeminiMapsService {
       );
       return result;
     } catch (err) {
-      logger.error('Gemini Maps grounding failed:', err);
+      // Timeouts and other resolution failures are non-fatal for chat: callers
+      // fall back to the ungrounded path. Log and propagate so Promise.allSettled
+      // can see the rejection.
+      logger.warn(`Gemini Maps grounding failed for "${query}": ${(err as Error).message}`);
       throw err;
     }
   }
@@ -162,30 +206,46 @@ export class GeminiMapsService {
 
     const prompt = `${systemGuidance}${contextBlock}\n\nRider question: "${query}"`;
 
+    // Primary: Search-grounded answer. If that's slow/empty, fall back to
+    // plain generation with a tighter budget. If both fail, return a graceful
+    // message instead of crashing the chat endpoint.
     try {
-      const response = await this.ai.models.generateContent({
-        model: MODEL,
-        contents: prompt,
-        config: { tools: [SEARCH_TOOL] },
-      });
+      const response = await withTimeout(
+        this.ai.models.generateContent({
+          model: MODEL,
+          contents: prompt,
+          config: { tools: [SEARCH_TOOL] },
+        }),
+        SUGGESTION_TIMEOUT_MS,
+        'getTransitSuggestion(search)'
+      );
       const text = response.text ?? '';
       if (text.trim()) return text;
-      // Retry once without grounding if the grounded model refused or returned empty.
       logger.warn('Transit suggestion returned empty with Search grounding; retrying plain.');
-      const retry = await this.ai.models.generateContent({
-        model: MODEL,
-        contents: prompt,
-      });
-      return retry.text ?? '';
     } catch (err) {
-      logger.error('Gemini transit suggestion failed:', err);
-      throw err;
+      logger.warn(`Primary transit suggestion failed: ${(err as Error).message} — falling back to plain generation`);
+    }
+
+    try {
+      const retry = await withTimeout(
+        this.ai.models.generateContent({ model: MODEL, contents: prompt }),
+        FALLBACK_TIMEOUT_MS,
+        'getTransitSuggestion(plain)'
+      );
+      const text = retry.text ?? '';
+      if (text.trim()) return text;
+      return "I couldn't generate directions right now. Try rephrasing, or check transitchicago.com.";
+    } catch (err) {
+      logger.error('Plain transit suggestion also failed:', err);
+      return "I couldn't generate directions right now. Try rephrasing, or check transitchicago.com.";
     }
   }
 
   /**
    * Pull "from X to Y" endpoints out of a trip-planning query and resolve both
-   * via Maps grounding. Returns null if the query doesn't look like a trip.
+   * via Maps grounding. Returns null if the query doesn't look like a trip or
+   * if either endpoint can't be resolved in time — the caller falls through
+   * to the ungrounded path in that case.
    */
   private static async extractEndpoints(
     query: string
@@ -193,17 +253,20 @@ export class GeminiMapsService {
     // Cheap regex first so we don't burn an extra Gemini call on simple questions.
     const m = query.match(/from\s+(.+?)\s+to\s+(.+?)(?:[?.!]|$)/i);
     if (!m) return null;
-    const [, rawOrigin, rawDest] = m;
-    try {
-      const [origin, destination] = await Promise.all([
-        this.resolveLocation(rawOrigin.trim()),
-        this.resolveLocation(rawDest.trim()),
-      ]);
-      if (!origin || !destination) return null;
-      return { origin, destination };
-    } catch (err) {
-      logger.warn('Endpoint resolution for transit suggestion failed:', err);
-      return null;
-    }
+    const origin = cleanEndpoint(m[1]);
+    const destination = cleanEndpoint(m[2]);
+    if (!origin || !destination) return null;
+
+    // allSettled — don't let one slow/failed resolve sink the other. If either
+    // comes back null, treat it as a miss and skip the context block.
+    const [oRes, dRes] = await Promise.allSettled([
+      this.resolveLocation(origin),
+      this.resolveLocation(destination),
+    ]);
+
+    const oVal = oRes.status === 'fulfilled' ? oRes.value : null;
+    const dVal = dRes.status === 'fulfilled' ? dRes.value : null;
+    if (!oVal || !dVal) return null;
+    return { origin: oVal, destination: dVal };
   }
 }

@@ -35,7 +35,7 @@ Click the web service → **Variables** tab. Add (names exactly as shown):
 | `CTA_TRAIN_API_KEY` | from your `.env` |
 | `CTA_BUS_API_KEY` | from your `.env` |
 | `GOOGLE_GEMINI_API_KEY` | from your `.env` |
-| `TELEGRAM_BOT_TOKEN` | **rotate first** (it was pasted in chat during local testing) |
+| `TELEGRAM_BOT_TOKEN` | from [@BotFather](https://t.me/BotFather) |
 | `TELEGRAM_BOT_USERNAME` | `OnTheLoop_bot` |
 | `TELEGRAM_WEBHOOK_SECRET` | new long random string (doesn't have to match local) |
 | `PUBLIC_URL` | fill in **after** step 4 |

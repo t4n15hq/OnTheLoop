@@ -1388,7 +1388,8 @@ async function checkFavorite(id) {
         apiUrl += `&direction=${encodeURIComponent(f.direction)}`;
       }
 
-      const arrivals = await apiCall(apiUrl);
+      const arrivalsResp = await apiCall(apiUrl);
+      const arrivals = Array.isArray(arrivalsResp) ? arrivalsResp : arrivalsResp?.arrivals;
 
       document.getElementById(t).remove();
 

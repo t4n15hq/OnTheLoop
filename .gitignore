@@ -31,9 +31,6 @@ Thumbs.db
 # Testing
 coverage/
 
-# Prisma
-prisma/migrations/
-
 # Playwright
 test-results/
 playwright-report/

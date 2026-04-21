@@ -557,7 +557,7 @@ Examples:
       });
 
 
-      const prompt = `How do I get from ${origin} to ${destination} using CTA? Provide a brief, step-by-step answer suitable for SMS (under 300 characters). Include specific route numbers and estimated time if possible.`;
+      const prompt = `How do I get from ${origin} to ${destination} using CTA? Respond with numbered steps, one per line, followed by a short "Est time: X mins" line. Keep the whole response under 300 characters. Include specific route numbers when relevant. Do not include any character count, word count, meta-commentary, or parenthetical notes about the response length.`;
 
       let result = await chat.sendMessage(prompt);
       let response = result.response;
@@ -599,6 +599,12 @@ Examples:
       }
 
       let directions = response.text();
+
+      // Defensive strip: even with the prompt telling it not to, the model
+      // occasionally appends "(236 chars)" / "(54 words)" / similar meta.
+      directions = directions
+        .replace(/\s*\(\d+\s*(?:chars?|characters?|words?)\)\s*$/i, '')
+        .trim();
 
       // Truncate if too long for SMS
       if (directions.length > 300) {
@@ -716,21 +722,18 @@ Examples:
    */
   private static formatArrivalsForSMS(arrivals: any[], title: string): string {
     if (arrivals.length === 0) {
-      return `${title}\n\nNo arrivals found.`;
+      return `${title}\n\nNo arrivals right now.`;
     }
 
-    let message = `${title}\n\n`;
-
+    const lines: string[] = [title, ''];
     arrivals.slice(0, 3).forEach((arrival, index) => {
-      const flags = [];
-      if (arrival.isApproaching) flags.push('⚡');
-      if (arrival.isDelayed) flags.push('⏱️');
-
-      const status = flags.length > 0 ? ` ${flags.join('')}` : '';
-      message += `${index + 1}. ${arrival.destination}\n`;
-      message += `   ${arrival.minutesAway} min${status}\n`;
+      const flags: string[] = [];
+      if (arrival.isApproaching) flags.push('arriving now');
+      if (arrival.isDelayed) flags.push('delayed');
+      const tail = flags.length ? ` (${flags.join(', ')})` : '';
+      lines.push(`${index + 1}. ${arrival.destination} — ${arrival.minutesAway} min${tail}`);
     });
 
-    return message.trim();
+    return lines.join('\n');
   }
 }

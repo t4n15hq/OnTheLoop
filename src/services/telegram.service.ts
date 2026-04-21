@@ -2,6 +2,16 @@ import axios, { AxiosInstance } from 'axios';
 import config from '../config';
 import logger from '../utils/logger';
 
+// Escape user-supplied text before embedding into an HTML-parse-mode message.
+// Telegram's HTML mode only recognizes a small tag set; everything else must
+// be entity-encoded so an ampersand or angle bracket doesn't break parsing.
+export function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 /**
  * Minimal Telegram Bot API wrapper. We only need sendMessage and webhook management.
  */

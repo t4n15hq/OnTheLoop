@@ -6,6 +6,7 @@ import config from './config';
 import logger from './utils/logger';
 import { startScheduler, stopScheduler } from './services/scheduler.service';
 import { createNotificationWorker } from './jobs/notification.job';
+import { apiLimiter } from './middleware/rate-limit.middleware';
 
 // Import routes
 import authRoutes from './routes/auth.routes';
@@ -46,6 +47,10 @@ app.use(express.static(path.join(__dirname, '../public')));
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Blanket per-IP cap on all /api/* traffic. Auth routes stack their own
+// tighter limits on top. Telegram's webhook is skipped inside apiLimiter.
+app.use('/api', apiLimiter);
 
 // Routes - Order matters! More specific routes must come before catch-all routes
 app.use('/api/auth', authRoutes);

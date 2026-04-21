@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
-import { TelegramService } from '../services/telegram.service';
+import { TelegramService, escapeHtml } from '../services/telegram.service';
 import { AISMSService } from '../services/ai-sms.service';
 import { FavoriteService } from '../services/favorite.service';
 import { CTAService } from '../services/cta.service';
@@ -21,17 +21,20 @@ interface TelegramUpdate {
   edited_message?: TelegramMessage;
 }
 
+// HTML-formatted. Send with parseMode: 'HTML'.
 const HELP_TEXT = [
-  'Commands:',
-  '• /next <route> — next arrivals for one of your favorites (e.g. /next 60)',
-  '• /favorites — list your saved routes with upcoming arrivals',
-  '• /unlink — disconnect this Telegram chat from your account',
-  '• /help — show this message',
+  '<b>Commands</b>',
+  '/next &lt;route&gt; — next arrivals for a favorite (e.g. <code>/next 60</code>)',
+  '/favorites — your saved routes with upcoming arrivals',
+  '/unlink — disconnect this chat from your account',
+  '/help — show this message',
   '',
-  'You can also just ask naturally:',
-  '"when is the next blue line?"',
-  '"how do I get to Willis Tower?"',
+  '<b>Or just ask</b>',
+  '<i>"when\'s the next blue line?"</i>',
+  '<i>"how do I get to Willis Tower?"</i>',
 ].join('\n');
+
+const HTML = { parseMode: 'HTML' as const };
 
 export class TelegramController {
   /**
@@ -74,7 +77,7 @@ export class TelegramController {
       }
 
       if (text === '/help') {
-        await TelegramService.sendMessage(chatId, HELP_TEXT);
+        await TelegramService.sendMessage(chatId, HELP_TEXT, HTML);
         return;
       }
 
@@ -82,14 +85,18 @@ export class TelegramController {
       if (!user) {
         await TelegramService.sendMessage(
           chatId,
-          'This chat isn\'t linked to an account yet. Open the web app, tap "Link Telegram", then send me the /start link.'
+          'This chat isn\'t linked to an account yet. Open the web app, tap <b>Link Telegram</b>, then send me the <code>/start</code> link.',
+          HTML
         );
         return;
       }
 
       if (text === '/unlink') {
         await AuthService.unlinkTelegram(user.id);
-        await TelegramService.sendMessage(chatId, 'Unlinked. You\'ll need to re-link from the web app to use this bot again.');
+        await TelegramService.sendMessage(
+          chatId,
+          'Unlinked. Re-link from the web app to use this bot again.'
+        );
         return;
       }
 
@@ -101,7 +108,11 @@ export class TelegramController {
       if (text.startsWith('/next')) {
         const route = text.replace('/next', '').trim();
         if (!route) {
-          await TelegramService.sendMessage(chatId, 'Usage: /next <route id>  (e.g. /next 60 or /next Blue)');
+          await TelegramService.sendMessage(
+            chatId,
+            'Usage: <code>/next &lt;route&gt;</code>\nExample: <code>/next 60</code> or <code>/next Blue</code>',
+            HTML
+          );
           return;
         }
         await TelegramController.sendRouteArrivals(chatId, user.id, route);
@@ -110,10 +121,12 @@ export class TelegramController {
 
       // Fall through to AI for natural-language queries.
       if (!config.google.geminiApiKey) {
-        await TelegramService.sendMessage(chatId, HELP_TEXT);
+        await TelegramService.sendMessage(chatId, HELP_TEXT, HTML);
         return;
       }
 
+      // AI responses are free-form prose — send as plain text so stray
+      // angle brackets or ampersands don't break HTML parse mode.
       const reply = await AISMSService.processQuery(user.id, text);
       await TelegramService.sendMessage(chatId, reply);
     } catch (error) {
@@ -133,12 +146,14 @@ export class TelegramController {
       if (existing) {
         await TelegramService.sendMessage(
           chatId,
-          `You're already linked as ${existing.email}. Send /help to see commands.`
+          `Already linked as <code>${escapeHtml(existing.email)}</code>. Send /help to see commands.`,
+          HTML
         );
       } else {
         await TelegramService.sendMessage(
           chatId,
-          'Welcome! To link this chat, open the web app, tap "Link Telegram", and follow the link it gives you.'
+          'Welcome. To link this chat, open the web app, tap <b>Link Telegram</b>, and follow the link it gives you.',
+          HTML
         );
       }
       return;
@@ -148,27 +163,31 @@ export class TelegramController {
     if (!user) {
       await TelegramService.sendMessage(
         chatId,
-        'That link token is invalid or already used. Generate a new one from the web app.'
+        'That link is invalid or already used. Generate a fresh one in the web app.'
       );
       return;
     }
 
     await TelegramService.sendMessage(
       chatId,
-      `Linked to ${user.email}. You'll get scheduled arrival alerts here.\n\n${HELP_TEXT}`
+      `<b>Linked</b>\nConnected to <code>${escapeHtml(user.email)}</code>. Scheduled arrival alerts will show up here.\n\n${HELP_TEXT}`,
+      HTML
     );
   }
 
   private static async sendFavorites(chatId: string, userId: string): Promise<void> {
     const favorites = await FavoriteService.getUserFavorites(userId);
     if (favorites.length === 0) {
-      await TelegramService.sendMessage(chatId, 'No favorites yet. Add some from the web app.');
+      await TelegramService.sendMessage(
+        chatId,
+        'No favorites yet. Add some in the web app and they\'ll show up here.'
+      );
       return;
     }
 
-    const lines: string[] = ['Your favorites:', ''];
+    const lines: string[] = ['<b>Your favorites</b>', ''];
     for (const fav of favorites) {
-      let summary = 'no upcoming';
+      let summary = '<i>no upcoming</i>';
       try {
         let arrivals;
         if (fav.routeType === 'TRAIN' && fav.stationId) {
@@ -188,15 +207,18 @@ export class TelegramController {
         if (arrivals && arrivals.length) {
           summary = arrivals
             .slice(0, 2)
-            .map((a) => `${a.minutesAway}m`)
+            .map((a) => `${a.minutesAway} min`)
             .join(', ');
         }
       } catch (err) {
         logger.warn(`Failed arrivals for favorite ${fav.id}:`, err);
       }
-      lines.push(`• ${fav.name} — ${summary}`);
+      lines.push(`<b>${escapeHtml(fav.name)}</b>\n${summary}`);
+      lines.push('');
     }
-    await TelegramService.sendMessage(chatId, lines.join('\n'));
+    // Trim trailing blank line
+    while (lines.length && lines[lines.length - 1] === '') lines.pop();
+    await TelegramService.sendMessage(chatId, lines.join('\n'), HTML);
   }
 
   private static async sendRouteArrivals(
@@ -212,7 +234,8 @@ export class TelegramController {
     if (!match) {
       await TelegramService.sendMessage(
         chatId,
-        `No favorite found for "${routeQuery}". Use /favorites to see what you have.`
+        `No favorite found for <code>${escapeHtml(routeQuery)}</code>. Send /favorites to see what you have.`,
+        HTML
       );
       return;
     }
@@ -234,7 +257,7 @@ export class TelegramController {
     }
 
     const body = CTAService.formatArrivalsForSMS(arrivals || [], match.name);
-    await TelegramService.sendMessage(chatId, body);
+    await TelegramService.sendMessage(chatId, body, HTML);
   }
 
   /**

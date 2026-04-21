@@ -200,7 +200,7 @@ async function processNotification(jobData: NotificationJobData) {
     if (shouldSendTelegram) {
       try {
         const body = CTAService.formatArrivalsForSMS(arrivals, title);
-        await TelegramService.sendMessage(user.telegramChatId!, body);
+        await TelegramService.sendMessage(user.telegramChatId!, body, { parseMode: 'HTML' });
         logger.info(`Telegram notification sent for favorite ${favoriteId}`);
         await recordLog({ userId, scheduleId, channel: 'TELEGRAM', status: 'SENT', kind });
       } catch (err: any) {
@@ -273,7 +273,7 @@ export function createNotificationWorker() {
     async (job) => {
       await processNotification(job.data);
     },
-    { connection: redis }
+    { connection: redis, concurrency: 10 }
   );
 
   worker.on('completed', (job) => {

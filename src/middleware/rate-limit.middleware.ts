@@ -35,3 +35,15 @@ export const telegramLinkLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many link attempts. Try again later.' },
 });
+
+// Blanket limit across /api/*. Skips the Telegram webhook — that's hit by
+// Telegram's servers from a small IP pool and would trip the limit under
+// normal load.
+export const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests. Please slow down.' },
+  skip: (req) => req.originalUrl.startsWith('/api/telegram/webhook'),
+});

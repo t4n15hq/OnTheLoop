@@ -324,16 +324,19 @@ export class CTAService {
   }
 
   /**
-   * Human-readable arrival block, used by Telegram + the email fallback path.
-   * Keeps plain text so Telegram doesn't need Markdown escaping.
+   * Human-readable arrival block for Telegram. Returns HTML-parse-mode content,
+   * so callers must send with `parseMode: 'HTML'`. The title is user-supplied
+   * (favorite name) so we escape it before wrapping in <b>.
    */
   static formatArrivalsForSMS(arrivals: FormattedArrival[], title: string): string {
+    const safeTitle = escapeHtmlForTelegram(title);
+
     if (arrivals.length === 0) {
-      return `${title}\n\nNo arrivals right now.`;
+      return `<b>${safeTitle}</b>\n\nNo arrivals right now.`;
     }
 
     const anyStale = arrivals.some((a) => a.isStale);
-    const lines: string[] = [title, ''];
+    const lines: string[] = [`<b>${safeTitle}</b>`, ''];
 
     arrivals.forEach((a, i) => {
       const timeLabel = a.isDue
@@ -350,15 +353,19 @@ export class CTAService {
       if (a.isDelayed) flags.push('delayed');
       if (a.confidence === 'scheduled') flags.push('scheduled');
 
-      const tail = flags.length ? ` (${flags.join(', ')})` : '';
-      lines.push(`${i + 1}. ${a.destination} — ${timeLabel}${tail}`);
+      const tail = flags.length ? ` <i>(${flags.join(', ')})</i>` : '';
+      lines.push(`${i + 1}. ${escapeHtmlForTelegram(a.destination)} — ${timeLabel}${tail}`);
     });
 
     if (anyStale) {
       lines.push('');
-      lines.push('⚠ CTA API is slow — showing last-known data.');
+      lines.push('<i>CTA API is slow — showing last-known data.</i>');
     }
 
     return lines.join('\n');
   }
+}
+
+function escapeHtmlForTelegram(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

@@ -274,6 +274,13 @@ export class TelegramController {
       const base = (req.body?.publicUrl || config.publicUrl).replace(/\/$/, '');
       const url = `${base}/api/telegram/webhook`;
       await TelegramService.setWebhook(url);
+      // Best-effort: register the "/" command autocomplete menu. If Telegram
+      // rejects this for any reason, the webhook still worked, so don't fail.
+      try {
+        await TelegramService.setCommandMenu();
+      } catch (err) {
+        logger.warn('setCommandMenu failed (webhook still registered):', err);
+      }
       const info = await TelegramService.getWebhookInfo();
       res.status(200).json({ url, info });
     } catch (error: any) {

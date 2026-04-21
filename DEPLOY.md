@@ -41,6 +41,13 @@ Click the web service → **Variables** tab. Add (names exactly as shown):
 | `PUBLIC_URL` | fill in **after** step 4 |
 | `SCHEDULE_TIMEZONE` | `America/Chicago` |
 
+### Optional
+
+| Var | Notes |
+|---|---|
+| `SENTRY_DSN` | Enable error reporting. Grab from sentry.io → Project → Settings → Client Keys (DSN). No-op if unset. |
+| `SENTRY_TRACES_SAMPLE_RATE` | Float 0.0–1.0. Default 0 (errors only, no perf tracing). |
+
 ### Optional (add later when SES sandbox is lifted)
 `EMAIL_USER`, `EMAIL_PASS`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_FROM`, `EMAIL_FROM_NAME`.
 

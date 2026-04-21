@@ -1,3 +1,7 @@
+// MUST be imported first so Sentry.init() runs before express and other
+// instrumented modules load. No-op when SENTRY_DSN isn't set.
+import { Sentry, sentryEnabled } from './utils/sentry';
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -64,6 +68,10 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
+// Sentry error handler — must come before our own error handler.
+// No-op when SENTRY_DSN isn't set.
+Sentry.setupExpressErrorHandler(app);
+
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   logger.error('Unhandled error:', err);
@@ -77,6 +85,7 @@ const server = app.listen(PORT, () => {
   logger.info(`CTA Track API server started on port ${PORT}`);
   logger.info(`Environment: ${config.nodeEnv}`);
   logger.info(`Schedule timezone: ${config.scheduleTimezone}`);
+  if (sentryEnabled) logger.info('Sentry error reporting enabled');
 
   startScheduler();
 

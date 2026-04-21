@@ -25,6 +25,7 @@
     "@google/genai": "^1.50.1",
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.19.0",
+    "@sentry/node": "^10.49.0",
     "@types/nodemailer": "^7.0.3",
     "axios": "^1.7.7",
     "bcryptjs": "^2.4.3",

@@ -107,6 +107,25 @@ class TelegramServiceImpl {
     const { data } = await client.get('/getWebhookInfo');
     return data;
   }
+
+  /**
+   * Register the "/" autocomplete menu users see in Telegram. Idempotent —
+   * Telegram replaces the list on each call.
+   */
+  async setCommandMenu(): Promise<void> {
+    const client = this.getClient();
+    if (!client) throw new Error('Telegram bot token not configured');
+
+    const commands = [
+      { command: 'next', description: 'Next arrivals for a saved favorite' },
+      { command: 'favorites', description: 'Your saved routes with next arrivals' },
+      { command: 'help', description: 'Show available commands' },
+      { command: 'unlink', description: 'Disconnect this chat from your account' },
+    ];
+
+    const { data } = await client.post('/setMyCommands', { commands });
+    logger.info(`Telegram setMyCommands → ${JSON.stringify(data)}`);
+  }
 }
 
 export const TelegramService = new TelegramServiceImpl();

@@ -175,7 +175,7 @@ function setupEventListeners() {
     if (input) { e.preventDefault(); input.focus(); }
   });
   document.getElementById('add-favorite-btn').addEventListener('click', () => openModal('favorite-modal'));
-  document.getElementById('add-schedule-btn').addEventListener('click', () => openModal('schedule-modal'));
+  document.getElementById('add-schedule-btn').addEventListener('click', () => openScheduleEditor(null));
   document.querySelectorAll('.modal-close').forEach(btn => btn.addEventListener('click', (e) => closeModal(e.target.closest('.modal').id)));
 
   document.getElementById('favorite-form').addEventListener('submit', handleCreateFavorite);
@@ -222,6 +222,7 @@ function setupEventListeners() {
     const toggle = e.target.closest('.pill-toggle');
     const delBtn = e.target.closest('.delete-btn');
     const testBtn = e.target.closest('.test-btn');
+    const editBtn = e.target.closest('.edit-btn');
 
     if (toggle) {
       e.preventDefault();
@@ -231,6 +232,9 @@ function setupEventListeners() {
     } else if (testBtn) {
       e.preventDefault();
       testSchedule(testBtn.dataset.id, testBtn);
+    } else if (editBtn) {
+      e.preventDefault();
+      openScheduleEditor(editBtn.dataset.id);
     } else if (delBtn) {
       e.preventDefault();
       deleteSchedule(delBtn.dataset.id);
@@ -1011,9 +1015,12 @@ function hideRouteSuggestion() {
   }
 }
 
+let cachedSchedules = [];
+
 async function loadSchedules() {
   try {
     const data = await apiCall('/api/schedules');
+    cachedSchedules = data.schedules || [];
     const list = document.getElementById('schedules-list');
     if (!data.schedules.length) {
       list.innerHTML = `
@@ -1037,6 +1044,7 @@ async function loadSchedules() {
         </div>
         <div class="flex items-center gap-4">
           <button class="icon-btn test-btn" data-id="${s.id}" title="Send test now" aria-label="Send test now" style="font-size: 0.9rem;">▶</button>
+          <button class="icon-btn edit-btn" data-id="${s.id}" title="Edit alert" aria-label="Edit alert" style="font-size: 0.95rem;">✎</button>
           <button class="icon-btn delete-btn" data-id="${s.id}" title="Delete alert" aria-label="Delete alert">×</button>
           <div class="pill-toggle ${s.enabled ? 'active' : ''}" data-id="${s.id}" role="switch" aria-checked="${s.enabled}"></div>
         </div>
@@ -1299,6 +1307,54 @@ async function handleCreateFavorite(e) {
     alert('Error saving favorite: ' + e.message);
   }
 }
+let editingScheduleId = null;
+
+function openScheduleEditor(id) {
+  editingScheduleId = id || null;
+  const form = document.getElementById('schedule-form');
+  const title = document.querySelector('#schedule-modal .modal-header h2');
+  const submit = form.querySelector('button[type="submit"]');
+  const favSelect = document.getElementById('schedule-favorite');
+
+  if (!id) {
+    form.reset();
+    favSelect.disabled = false;
+    if (title) title.textContent = 'New alert';
+    if (submit) submit.textContent = 'Set alert';
+    openModal('schedule-modal');
+    return;
+  }
+
+  const schedule = (cachedSchedules || []).find((s) => s.id === id);
+  if (!schedule) {
+    alert('Could not load this alert. Refresh and try again.');
+    return;
+  }
+
+  if (title) title.textContent = 'Edit alert';
+  if (submit) submit.textContent = 'Save changes';
+
+  if (!Array.from(favSelect.options).some((o) => o.value === schedule.favoriteId)) {
+    const opt = document.createElement('option');
+    opt.value = schedule.favoriteId;
+    opt.textContent = schedule.favorite?.name || 'This route';
+    favSelect.appendChild(opt);
+  }
+  favSelect.value = schedule.favoriteId;
+  favSelect.disabled = true;
+
+  document.getElementById('schedule-time').value = schedule.time;
+  document.getElementById('schedule-lead').value = String(schedule.leadMinutes ?? 0);
+  document.getElementById('schedule-channel').value = schedule.channel || 'AUTO';
+
+  const days = new Set((schedule.daysOfWeek || []).map(Number));
+  form.querySelectorAll('input[name="day"]').forEach((cb) => {
+    cb.checked = days.has(parseInt(cb.value, 10));
+  });
+
+  openModal('schedule-modal');
+}
+
 async function handleCreateSchedule(e) {
   e.preventDefault();
   const form = e.target;
@@ -1309,20 +1365,34 @@ async function handleCreateSchedule(e) {
   }
   const leadMinutes = parseInt(document.getElementById('schedule-lead').value, 10) || 0;
   const channel = document.getElementById('schedule-channel').value || 'AUTO';
-  const p = {
-    favoriteId: document.getElementById('schedule-favorite').value,
-    time: document.getElementById('schedule-time').value,
-    daysOfWeek: days,
-    leadMinutes,
-    channel,
-  };
+  const time = document.getElementById('schedule-time').value;
+
   try {
+    if (editingScheduleId) {
+      await apiCall(`/api/schedules/${editingScheduleId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ time, daysOfWeek: days, leadMinutes, channel }),
+      });
+      editingScheduleId = null;
+      closeModal('schedule-modal');
+      form.reset();
+      document.getElementById('schedule-favorite').disabled = false;
+      await loadSchedules();
+      return;
+    }
+
+    const p = {
+      favoriteId: document.getElementById('schedule-favorite').value,
+      time,
+      daysOfWeek: days,
+      leadMinutes,
+      channel,
+    };
     const res = await apiCall('/api/schedules', { method: 'POST', body: JSON.stringify(p) });
     closeModal('schedule-modal');
     form.reset();
     await loadSchedules();
     if (res?.emailAutoEnabled) {
-      // Refresh local user snapshot so the Profile toggle reflects reality.
       await loadCurrentUser();
       alert('Email notifications turned on so you actually receive this alert. You can change this in Profile → General.');
     }

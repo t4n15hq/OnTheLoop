@@ -35,17 +35,42 @@ class TelegramServiceImpl {
       return;
     }
 
+    const payload = {
+      chat_id: chatId,
+      text,
+      parse_mode: opts.parseMode,
+      disable_web_page_preview: opts.disablePreview ?? true,
+    };
+
+    // Single retry on transient errors (timeouts, 5xx, 429 with retry_after).
+    // 4xx-other (bot blocked, chat-not-found) are terminal — don't retry.
     try {
-      await client.post('/sendMessage', {
-        chat_id: chatId,
-        text,
-        parse_mode: opts.parseMode,
-        disable_web_page_preview: opts.disablePreview ?? true,
-      });
+      await client.post('/sendMessage', payload);
     } catch (error: any) {
-      const detail = error?.response?.data || error?.message || error;
-      logger.error(`Telegram sendMessage failed for chat ${chatId}:`, detail);
-      throw error;
+      const status = error?.response?.status;
+      const code = error?.code;
+      const timedOut = code === 'ECONNABORTED' || code === 'ETIMEDOUT' || code === 'ECONNRESET';
+      const serverErr = status !== undefined && status >= 500;
+      const throttled = status === 429;
+
+      if (!timedOut && !serverErr && !throttled) {
+        const detail = error?.response?.data || error?.message || error;
+        logger.error(`Telegram sendMessage failed for chat ${chatId}:`, detail);
+        throw error;
+      }
+
+      const retryAfter = throttled ? Number(error?.response?.data?.parameters?.retry_after) : 0;
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 500;
+      logger.warn(`Telegram sendMessage transient (${code || status}) for chat ${chatId}; retry in ${waitMs}ms`);
+      await new Promise((r) => setTimeout(r, waitMs));
+
+      try {
+        await client.post('/sendMessage', payload);
+      } catch (retryErr: any) {
+        const detail = retryErr?.response?.data || retryErr?.message || retryErr;
+        logger.error(`Telegram sendMessage retry failed for chat ${chatId}:`, detail);
+        throw retryErr;
+      }
     }
   }
 

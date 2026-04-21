@@ -15,6 +15,26 @@ const CTA_BUS_API_BASE = 'http://www.ctabustracker.com/bustime/api/v2';
 // can serve something if CTA returns a 500 or times out on the next call.
 const STALE_FALLBACK_TTL_SECONDS = 600;
 
+// In-flight request coalescing. When 50 users hit Belmont in the same 200ms
+// before the cache writes, they should all share one upstream call — not fire
+// 50 parallel CTA requests. Keyed by cache key; entries are deleted as soon as
+// the promise settles so we don't hand out stale results on the next request.
+const inflight = new Map<string, Promise<FormattedArrival[]>>();
+
+async function withCoalescing(
+  key: string,
+  factory: () => Promise<FormattedArrival[]>
+): Promise<FormattedArrival[]> {
+  const existing = inflight.get(key);
+  if (existing) return existing;
+
+  const promise = factory().finally(() => {
+    if (inflight.get(key) === promise) inflight.delete(key);
+  });
+  inflight.set(key, promise);
+  return promise;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // HTTP with single retry on transient failures (timeouts + 5xx).
 // ────────────────────────────────────────────────────────────────────────────
@@ -140,62 +160,71 @@ export class CTAService {
       return cached.map((a) => ({ ...a, arrivalTime: new Date(a.arrivalTime) }));
     }
 
-    const params: Record<string, unknown> = {
-      key: config.cta.trainApiKey,
-      mapid: stationId,
-      outputType: 'JSON',
-    };
-    if (routeCode) params.rt = routeCode;
+    return withCoalescing(cacheKey, async () => {
+      // Re-check the cache inside the coalescer — an earlier request may have
+      // finished and written the cache while we were queued up.
+      const fresh = await CacheService.get<FormattedArrival[]>(cacheKey);
+      if (fresh) {
+        return fresh.map((a) => ({ ...a, arrivalTime: new Date(a.arrivalTime) }));
+      }
 
-    let data: CTATrainResponse;
-    try {
-      data = await httpGet<CTATrainResponse>(
-        `${CTA_TRAIN_API_BASE}/ttarrivals.aspx`,
-        params
-      );
-    } catch (err) {
-      logger.warn(`CTA train request failed for ${stationId}; trying stale cache`, err);
-      const stale = await readStale(cacheKey);
-      if (stale) return stale;
-      throw err;
-    }
-
-    const { errCd, errNm, eta } = data.ctatt;
-
-    // errCd '0' = OK. '100' = no arrival data (valid empty state, not an error).
-    if (errCd !== '0' && errCd !== '100') {
-      logger.error(`CTA Train API error (errCd=${errCd}): ${errNm}`);
-      const stale = await readStale(cacheKey);
-      if (stale) return stale;
-      throw new Error(errNm || `CTA error ${errCd}`);
-    }
-
-    let raw = eta || [];
-
-    if (direction) {
-      const code = mapDirectionToTrainCode(direction);
-      if (code) raw = raw.filter((a) => String(a.trDr) === code);
-    }
-
-    const now = new Date();
-    const arrivals: FormattedArrival[] = raw.map((a) => {
-      const arrivalTime = parseTrainTime(a.arrT);
-      const isSch = a.isSch === '1';
-      return {
-        routeName: `${a.rt} Line`,
-        destination: a.destNm,
-        arrivalTime,
-        minutesAway: minutesFromNow(arrivalTime, now),
-        isApproaching: a.isApp === '1',
-        isDelayed: a.isDly === '1',
-        isScheduled: isSch,
-        confidence: isSch ? 'scheduled' : 'live',
+      const params: Record<string, unknown> = {
+        key: config.cta.trainApiKey,
+        mapid: stationId,
+        outputType: 'JSON',
       };
-    });
+      if (routeCode) params.rt = routeCode;
 
-    const result = sortAndTrim(arrivals);
-    await writeCache(cacheKey, result);
-    return result;
+      let data: CTATrainResponse;
+      try {
+        data = await httpGet<CTATrainResponse>(
+          `${CTA_TRAIN_API_BASE}/ttarrivals.aspx`,
+          params
+        );
+      } catch (err) {
+        logger.warn(`CTA train request failed for ${stationId}; trying stale cache`, err);
+        const stale = await readStale(cacheKey);
+        if (stale) return stale;
+        throw err;
+      }
+
+      const { errCd, errNm, eta } = data.ctatt;
+
+      // errCd '0' = OK. '100' = no arrival data (valid empty state, not an error).
+      if (errCd !== '0' && errCd !== '100') {
+        logger.error(`CTA Train API error (errCd=${errCd}): ${errNm}`);
+        const stale = await readStale(cacheKey);
+        if (stale) return stale;
+        throw new Error(errNm || `CTA error ${errCd}`);
+      }
+
+      let raw = eta || [];
+
+      if (direction) {
+        const code = mapDirectionToTrainCode(direction);
+        if (code) raw = raw.filter((a) => String(a.trDr) === code);
+      }
+
+      const now = new Date();
+      const arrivals: FormattedArrival[] = raw.map((a) => {
+        const arrivalTime = parseTrainTime(a.arrT);
+        const isSch = a.isSch === '1';
+        return {
+          routeName: `${a.rt} Line`,
+          destination: a.destNm,
+          arrivalTime,
+          minutesAway: minutesFromNow(arrivalTime, now),
+          isApproaching: a.isApp === '1',
+          isDelayed: a.isDly === '1',
+          isScheduled: isSch,
+          confidence: isSch ? 'scheduled' : 'live',
+        };
+      });
+
+      const result = sortAndTrim(arrivals);
+      await writeCache(cacheKey, result);
+      return result;
+    });
   }
 
   /**
@@ -221,70 +250,77 @@ export class CTAService {
       return cached.map((a) => ({ ...a, arrivalTime: new Date(a.arrivalTime) }));
     }
 
-    const params: Record<string, unknown> = {
-      key: config.cta.busApiKey,
-      stpid: stopId,
-      format: 'json',
-    };
-    if (routeId) params.rt = routeId;
+    return withCoalescing(cacheKey, async () => {
+      const fresh = await CacheService.get<FormattedArrival[]>(cacheKey);
+      if (fresh) {
+        return fresh.map((a) => ({ ...a, arrivalTime: new Date(a.arrivalTime) }));
+      }
 
-    let data: CTABusResponse;
-    try {
-      data = await httpGet<CTABusResponse>(
-        `${CTA_BUS_API_BASE}/getpredictions`,
-        params
-      );
-    } catch (err) {
-      logger.warn(`CTA bus request failed for ${stopId}; trying stale cache`, err);
-      const stale = await readStale(cacheKey);
-      if (stale) return stale;
-      throw err;
-    }
+      const params: Record<string, unknown> = {
+        key: config.cta.busApiKey,
+        stpid: stopId,
+        format: 'json',
+      };
+      if (routeId) params.rt = routeId;
 
-    const body = data['bustime-response'];
+      let data: CTABusResponse;
+      try {
+        data = await httpGet<CTABusResponse>(
+          `${CTA_BUS_API_BASE}/getpredictions`,
+          params
+        );
+      } catch (err) {
+        logger.warn(`CTA bus request failed for ${stopId}; trying stale cache`, err);
+        const stale = await readStale(cacheKey);
+        if (stale) return stale;
+        throw err;
+      }
 
-    // CTA returns `error[{ msg: "No arrival times" }]` in two cases:
-    //   1. stop is temporarily empty (valid, should return [] not throw)
-    //   2. stop/route is bad (we can't tell from the message text alone, so
-    //      we treat all messages as empty results — if the stop is truly
-    //      broken it'll keep returning empty, which is the right UX anyway).
-    if (body.error && !body.prd) {
-      const result: FormattedArrival[] = [];
+      const body = data['bustime-response'];
+
+      // CTA returns `error[{ msg: "No arrival times" }]` in two cases:
+      //   1. stop is temporarily empty (valid, should return [] not throw)
+      //   2. stop/route is bad (we can't tell from the message text alone, so
+      //      we treat all messages as empty results — if the stop is truly
+      //      broken it'll keep returning empty, which is the right UX anyway).
+      if (body.error && !body.prd) {
+        const result: FormattedArrival[] = [];
+        await writeCache(cacheKey, result);
+        return result;
+      }
+
+      let raw = body.prd || [];
+
+      if (direction) {
+        const d = direction.toLowerCase();
+        raw = raw.filter((p) => p.rtdir && p.rtdir.toLowerCase().includes(d));
+      }
+
+      const now = new Date();
+      const arrivals: FormattedArrival[] = raw.map((p) => {
+        const arrivalTime = parseBusTime(p.prdtm);
+        const isDue = p.prdctdn.toUpperCase() === 'DUE';
+        const minsFromCountdown = isDue ? 0 : parseInt(p.prdctdn, 10);
+        const minutesAway = Number.isFinite(minsFromCountdown)
+          ? Math.max(0, minsFromCountdown)
+          : minutesFromNow(arrivalTime, now);
+
+        return {
+          routeName: `Route ${p.rt}`,
+          destination: p.des,
+          arrivalTime,
+          minutesAway,
+          isApproaching: isDue || minutesAway <= 1,
+          isDelayed: p.dly === true,
+          isDue,
+          confidence: 'live',
+        };
+      });
+
+      const result = sortAndTrim(arrivals, limit);
       await writeCache(cacheKey, result);
       return result;
-    }
-
-    let raw = body.prd || [];
-
-    if (direction) {
-      const d = direction.toLowerCase();
-      raw = raw.filter((p) => p.rtdir && p.rtdir.toLowerCase().includes(d));
-    }
-
-    const now = new Date();
-    const arrivals: FormattedArrival[] = raw.map((p) => {
-      const arrivalTime = parseBusTime(p.prdtm);
-      const isDue = p.prdctdn.toUpperCase() === 'DUE';
-      const minsFromCountdown = isDue ? 0 : parseInt(p.prdctdn, 10);
-      const minutesAway = Number.isFinite(minsFromCountdown)
-        ? Math.max(0, minsFromCountdown)
-        : minutesFromNow(arrivalTime, now);
-
-      return {
-        routeName: `Route ${p.rt}`,
-        destination: p.des,
-        arrivalTime,
-        minutesAway,
-        isApproaching: isDue || minutesAway <= 1,
-        isDelayed: p.dly === true,
-        isDue,
-        confidence: 'live',
-      };
     });
-
-    const result = sortAndTrim(arrivals, limit);
-    await writeCache(cacheKey, result);
-    return result;
   }
 
   /**

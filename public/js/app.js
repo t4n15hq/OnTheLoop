@@ -444,17 +444,47 @@ async function handleLinkTelegram() {
   btn.disabled = true;
   try {
     const res = await apiCall('/api/auth/telegram/link', { method: 'POST' });
-    if (res.deepLink) {
-      window.open(res.deepLink, '_blank', 'noopener');
-    } else {
-      alert(`Send this to the bot:\n\n/start ${res.token}`);
-    }
+    showTelegramLinkModal(res);
   } catch (e) {
     alert(e.message || 'Failed to generate link');
   } finally {
     btn.textContent = original;
     btn.disabled = false;
   }
+}
+
+function showTelegramLinkModal({ token, deepLink, botUsername }) {
+  const ready = document.getElementById('telegram-link-ready');
+  const unavailable = document.getElementById('telegram-link-unavailable');
+  const startCmd = `/start ${token}`;
+
+  if (botUsername && deepLink) {
+    const handle = botUsername.startsWith('@') ? botUsername : `@${botUsername}`;
+    document.getElementById('telegram-bot-handle').textContent = handle;
+    document.getElementById('telegram-bot-handle-btn').textContent = handle;
+    document.getElementById('telegram-open-link').href = deepLink;
+    document.getElementById('telegram-start-cmd').textContent = startCmd;
+
+    const copyBtn = document.getElementById('telegram-copy-btn');
+    copyBtn.textContent = 'Copy';
+    copyBtn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(startCmd);
+        copyBtn.textContent = 'Copied';
+        setTimeout(() => (copyBtn.textContent = 'Copy'), 1800);
+      } catch {
+        copyBtn.textContent = 'Copy failed';
+      }
+    };
+
+    ready.classList.remove('hidden');
+    unavailable.classList.add('hidden');
+  } else {
+    ready.classList.add('hidden');
+    unavailable.classList.remove('hidden');
+  }
+
+  openModal('telegram-link-modal');
 }
 
 async function handleUnlinkTelegram() {

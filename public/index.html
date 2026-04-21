@@ -929,6 +929,65 @@
     </div>
   </div>
 
+  <!-- TELEGRAM LINK MODAL -->
+  <div id="telegram-link-modal" class="modal hidden">
+    <div class="modal-header">
+      <h2>Link Telegram</h2>
+      <button class="modal-close icon-btn" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="telegram-link-unavailable" class="hidden" style="padding: 14px 16px; border: 1px dashed var(--border); border-radius: 10px; background: var(--bg-alt); color: var(--ink-2); font-size: 0.9rem; line-height: 1.55;">
+        <strong style="display: block; margin-bottom: 6px; color: var(--ink); font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase;">Bot not configured</strong>
+        The Telegram bot for this instance hasn't been set up yet. The admin needs to set <code>TELEGRAM_BOT_TOKEN</code> and <code>TELEGRAM_BOT_USERNAME</code> in the server environment before linking will work. Email alerts still work in the meantime.
+      </div>
+
+      <div id="telegram-link-ready" class="hidden">
+        <p style="margin: 0 0 18px; color: var(--ink-2); font-size: 0.92rem; line-height: 1.55;">
+          Three steps. You'll be chatting with <strong id="telegram-bot-handle">the bot</strong> in under a minute.
+        </p>
+
+        <ol style="list-style: none; counter-reset: step; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 14px;">
+          <li style="counter-increment: step; display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start;">
+            <span aria-hidden="true" style="width: 28px; height: 28px; border-radius: 50%; background: var(--cta-primary); color: #fff; font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; justify-content: center;">1</span>
+            <div>
+              <div style="font-weight: 600; color: var(--ink); margin-bottom: 4px;">Open the bot in Telegram</div>
+              <div style="font-size: 0.86rem; color: var(--ink-3); margin-bottom: 8px;">Tap below to jump straight to the chat. Mobile opens the app; desktop opens the web client.</div>
+              <a id="telegram-open-link" href="#" target="_blank" rel="noopener" class="btn-shimmer" style="display: inline-block; text-decoration: none; padding: 9px 18px; font-size: 0.88rem;">
+                Open <span id="telegram-bot-handle-btn">@bot</span> in Telegram →
+              </a>
+            </div>
+          </li>
+
+          <li style="counter-increment: step; display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start;">
+            <span aria-hidden="true" style="width: 28px; height: 28px; border-radius: 50%; background: var(--cta-primary); color: #fff; font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; justify-content: center;">2</span>
+            <div>
+              <div style="font-weight: 600; color: var(--ink); margin-bottom: 4px;">Send the start command</div>
+              <div style="font-size: 0.86rem; color: var(--ink-3); margin-bottom: 8px;">Telegram should prefill it after step 1. If not, paste this into the chat and send:</div>
+              <div style="display: flex; gap: 8px; align-items: stretch;">
+                <code id="telegram-start-cmd" style="flex: 1; background: var(--bg-alt); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.86rem; color: var(--ink); overflow-x: auto; white-space: nowrap;">/start …</code>
+                <button type="button" id="telegram-copy-btn" class="text-btn" style="background: transparent; border: 1px solid var(--border); color: var(--ink-2); padding: 0 14px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.84rem;">
+                  Copy
+                </button>
+              </div>
+            </div>
+          </li>
+
+          <li style="counter-increment: step; display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start;">
+            <span aria-hidden="true" style="width: 28px; height: 28px; border-radius: 50%; background: var(--cta-primary); color: #fff; font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; justify-content: center;">3</span>
+            <div>
+              <div style="font-weight: 600; color: var(--ink); margin-bottom: 4px;">Come back here</div>
+              <div style="font-size: 0.86rem; color: var(--ink-3);">The bot will reply "Linked" and your scheduled alerts will start landing in Telegram. This page updates automatically the next time you open the profile.</div>
+            </div>
+          </li>
+        </ol>
+
+        <p style="margin: 20px 0 0; padding-top: 14px; border-top: 1px solid var(--border); color: var(--ink-3); font-size: 0.8rem; line-height: 1.5;">
+          The token above is single-use and expires in 15 minutes. If something goes wrong, close this and hit "Link Telegram" again for a fresh one.
+        </p>
+      </div>
+    </div>
+  </div>
+
   <!-- PRIVACY MODAL -->
   <div id="privacy-modal" class="modal hidden">
     <div class="modal-header">

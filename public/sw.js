@@ -1,7 +1,7 @@
-// Minimal service worker: cache-first for the app shell, network-first for
-// everything else. API calls are always passed through — arrival data must be
-// live and user-specific.
-const CACHE_VERSION = 'ontheloop-v1';
+// Service worker: network-first for the app shell so deploys land immediately,
+// with a cached fallback for offline use. API calls are always passed through —
+// arrival data must be live and user-specific.
+const CACHE_VERSION = 'ontheloop-v2';
 const APP_SHELL = [
   '/',
   '/index.html',
@@ -40,19 +40,17 @@ self.addEventListener('fetch', (event) => {
   // Never cache API responses — they're user-scoped and time-sensitive.
   if (url.pathname.startsWith('/api/')) return;
 
-  // App-shell: cache-first with background refresh.
+  // Network-first: always try the network so fresh HTML/JS/CSS wins,
+  // fall back to cache only when offline.
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const networkFetch = fetch(request)
-        .then((response) => {
-          if (response && response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached);
-      return cached || networkFetch;
-    })
+    fetch(request)
+      .then((response) => {
+        if (response && response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_VERSION).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(request))
   );
 });

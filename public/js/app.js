@@ -866,11 +866,19 @@ async function handleChatMessage(e) {
   if (!query) return;
   addChatMessage(query, 'user'); input.value = '';
   const typingId = 't' + Date.now();
-  document.getElementById('chat-messages').insertAdjacentHTML('beforeend', `<div id="${typingId}" class="chat-bubble bot" style="opacity:0.5">...</div>`);
+  document.getElementById('chat-messages').insertAdjacentHTML(
+    'beforeend',
+    `<div id="${typingId}" class="chat-bubble bot typing-bubble"><span class="typing-label">Thinking</span><span class="typing-dots"><span></span><span></span><span></span></span><div class="typing-hint">Checking CTA live data — this can take up to 30s</div></div>`
+  );
+  const c = document.getElementById('chat-messages'); c.scrollTop = c.scrollHeight;
   try {
     const data = await apiCall(`/api/cta/transit/ask?query=${encodeURIComponent(query)}`);
-    document.getElementById(typingId).remove(); addChatMessage(data.answer, 'bot');
-  } catch (e) { document.getElementById(typingId).remove(); addChatMessage("Error.", 'bot'); }
+    document.getElementById(typingId)?.remove();
+    addChatMessage(data.answer || 'No response. Try rephrasing your question.', 'bot');
+  } catch (err) {
+    document.getElementById(typingId)?.remove();
+    addChatMessage(`Couldn't reach the assistant — ${err.message || 'please try again'}.`, 'bot');
+  }
 }
 function addChatMessage(text, type) {
   const div = document.createElement('div'); div.className = `chat-bubble ${type}`;

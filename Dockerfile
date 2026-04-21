@@ -2,21 +2,18 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install dependencies
+# Install all deps (devDeps are needed for `tsc` at build time and `prisma`
+# CLI at runtime for `migrate deploy`).
 COPY package*.json ./
 RUN npm ci
 
-# Copy source code
+# Build: `npm run build` runs `prisma generate && tsc`.
 COPY . .
-COPY prisma ./prisma/
-
-# Build
-RUN npx prisma generate
 RUN npm run build
 
-# Expose port
 EXPOSE 3000
 
-# Start application
-CMD ["npm", "start"]
-
+# Railway overrides this via railway.json (`startCommand: npm run start:prod`)
+# so migrations run before the server boots. Kept here as a sensible default
+# if someone runs the image outside Railway.
+CMD ["npm", "run", "start:prod"]

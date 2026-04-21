@@ -489,133 +489,77 @@ Examples:
   }
 
   /**
-   * This is a placeholder for a real Google Search execution.
-   * In a real application, you would integrate with a Google Search API
-   * and return structured results. For now, it returns a mock string.
-   */
-  private static async executeGoogleSearch(query: string): Promise<string> {
-    logger.info(`Executing mock Google Search for query: "${query}"`);
-    // In a real application, you'd call a service like:
-    // const searchResults = await GoogleSearchAPI.search(query);
-    // return JSON.stringify(searchResults); // Return relevant information
-
-    // For demonstration, let's just return a placeholder.
-    // The model might not give good directions without real search results.
-    return `[Mock Search Result for "${query}": A detailed search for CTA directions from ${query} would normally be performed here. Please provide real search results from an external API if you want the model to generate accurate directions.]`;
-  }
-
-  /**
    * Handle transit directions query
    * Example: "How do I get to Willis Tower from Northwestern?"
+   *
+   * Uses Gemini's structured-output mode with a responseSchema so the model
+   * returns { steps, estTimeMinutes } JSON instead of prose we'd have to
+   * regex-clean. Formatting to user-facing text happens in code.
    */
   static async handleTransitDirections(
     origin: string,
     destination: string
   ): Promise<string> {
     try {
-      const chat = this.genAI.getGenerativeModel({
+      const model = this.genAI.getGenerativeModel({
         model: 'gemini-flash-latest',
         safetySettings: [
-          {
-            category: HarmCategory.HARM_CATEGORY_HARASSMENT,
-            threshold: HarmBlockThreshold.BLOCK_NONE,
-          },
-          {
-            category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-            threshold: HarmBlockThreshold.BLOCK_NONE,
-          },
-          {
-            category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-            threshold: HarmBlockThreshold.BLOCK_NONE,
-          },
-          {
-            category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-            threshold: HarmBlockThreshold.BLOCK_NONE,
-          },
+          { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+          { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+          { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+          { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
         ],
-      }).startChat({
-        tools: [
-          {
-            functionDeclarations: [
-              {
-                name: "googleSearch",
-                description: "A tool to perform Google searches to find transit information, points of interest, or resolve locations.",
-                parameters: {
-                  type: SchemaType.OBJECT,
-                  properties: {
-                    query: {
-                      type: SchemaType.STRING,
-                      description: "The search query to be executed.",
-                    },
-                  },
-                  required: ["query"],
-                },
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: SchemaType.OBJECT,
+            properties: {
+              steps: {
+                type: SchemaType.ARRAY,
+                description: 'Ordered transit steps, each a short imperative sentence. Include specific CTA route numbers or line colors when relevant.',
+                items: { type: SchemaType.STRING },
               },
-            ],
+              estTimeMinutes: {
+                type: SchemaType.INTEGER,
+                description: 'Estimated total travel time in minutes.',
+              },
+            },
+            required: ['steps', 'estTimeMinutes'],
           },
-        ],
+        },
       });
 
+      const prompt = `Give CTA transit directions from "${origin}" to "${destination}". Return up to 5 concise steps and an estimated total time in minutes.`;
 
-      const prompt = `How do I get from ${origin} to ${destination} using CTA? Respond with numbered steps, one per line, followed by a short "Est time: X mins" line. Keep the whole response under 300 characters. Include specific route numbers when relevant. Do not include any character count, word count, meta-commentary, or parenthetical notes about the response length.`;
+      const result = await model.generateContent(prompt);
+      const raw = result.response.text();
 
-      let result = await chat.sendMessage(prompt);
-      let response = result.response;
-
-      // Check if the model wants to call a tool. Newer @google/generative-ai
-      // versions dropped the singular .functionCall() helper in favor of
-      // .functionCalls() returning an array.
-      const functionCall = response.functionCalls?.()?.[0];
-      if (functionCall) {
-        const { name, args } = functionCall;
-        logger.info(`Model requested tool call: ${name} with args: ${JSON.stringify(args)}`);
-
-        if (name === "googleSearch") {
-          const toolResult = await AISMSService.executeGoogleSearch((args as any).query);
-
-          // Send the tool result back to the model
-          result = await chat.sendMessage([
-            {
-              text: prompt, // Re-send the original prompt for context
-            },
-            {
-              functionCall: { name, args },
-            },
-            {
-              functionResponse: {
-                name,
-                response: {
-                  content: toolResult, // Use 'content' for string results or other appropriate key
-                },
-              },
-            },
-          ]);
-          response = result.response; // Get the new response after tool execution
-        } else {
-          // Handle unknown tool
-          logger.warn(`Unknown tool called: ${name}`);
-          return 'Sorry, an unknown tool was requested, and I cannot fulfill this request.';
-        }
-      }
-
-      let directions = response.text();
-
-      // Defensive strip: even with the prompt telling it not to, the model
-      // occasionally appends "(236 chars)" / "(54 words)" / similar meta.
-      directions = directions
-        .replace(/\s*\(\d+\s*(?:chars?|characters?|words?)\)\s*$/i, '')
-        .trim();
-
-      // Truncate if too long for SMS
-      if (directions.length > 300) {
-        directions = directions.substring(0, 297) + '...';
-      } else if (directions.trim().length === 0) {
-        // Fallback if model still didn't generate text after tool call (or if no tool call was made but no text was generated)
+      let parsed: { steps?: unknown; estTimeMinutes?: unknown };
+      try {
+        parsed = JSON.parse(raw);
+      } catch (err) {
+        logger.warn(`Gemini directions JSON parse failed: ${raw}`);
         return `Sorry, I couldn't find transit directions from ${origin} to ${destination}. Please try rephrasing or check a map.`;
       }
 
+      const steps = Array.isArray(parsed.steps)
+        ? parsed.steps.filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+        : [];
+      const estMinutes =
+        typeof parsed.estTimeMinutes === 'number' && Number.isFinite(parsed.estTimeMinutes)
+          ? Math.max(0, Math.round(parsed.estTimeMinutes))
+          : null;
 
-      return directions;
+      if (steps.length === 0) {
+        return `Sorry, I couldn't find transit directions from ${origin} to ${destination}. Please try rephrasing or check a map.`;
+      }
+
+      const lines = steps.slice(0, 5).map((s, i) => `${i + 1}. ${s}`);
+      if (estMinutes !== null) lines.push(`Est time: ${estMinutes} mins`);
+
+      let out = lines.join('\n');
+      if (out.length > 500) out = out.substring(0, 497) + '...';
+      return out;
     } catch (error) {
       logger.error('Error handling transit directions:', error);
       return 'Sorry, could not get directions. Please try again.';

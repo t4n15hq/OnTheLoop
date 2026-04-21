@@ -7,6 +7,7 @@ import {
   FormattedArrival,
 } from '../types/cta.types';
 import { CacheService } from './cache.service';
+import { createCoalescer } from '../utils/coalesce';
 
 const CTA_TRAIN_API_BASE = 'http://lapi.transitchicago.com/api/1.0';
 const CTA_BUS_API_BASE = 'http://www.ctabustracker.com/bustime/api/v2';
@@ -17,23 +18,8 @@ const STALE_FALLBACK_TTL_SECONDS = 600;
 
 // In-flight request coalescing. When 50 users hit Belmont in the same 200ms
 // before the cache writes, they should all share one upstream call — not fire
-// 50 parallel CTA requests. Keyed by cache key; entries are deleted as soon as
-// the promise settles so we don't hand out stale results on the next request.
-const inflight = new Map<string, Promise<FormattedArrival[]>>();
-
-async function withCoalescing(
-  key: string,
-  factory: () => Promise<FormattedArrival[]>
-): Promise<FormattedArrival[]> {
-  const existing = inflight.get(key);
-  if (existing) return existing;
-
-  const promise = factory().finally(() => {
-    if (inflight.get(key) === promise) inflight.delete(key);
-  });
-  inflight.set(key, promise);
-  return promise;
-}
+// 50 parallel CTA requests.
+const { withCoalescing } = createCoalescer<FormattedArrival[]>();
 
 // ────────────────────────────────────────────────────────────────────────────
 // HTTP with single retry on transient failures (timeouts + 5xx).

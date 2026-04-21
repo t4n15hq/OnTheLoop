@@ -562,8 +562,10 @@ Examples:
       let result = await chat.sendMessage(prompt);
       let response = result.response;
 
-      // Check if the model wants to call a tool
-      const functionCall = response.functionCall();
+      // Check if the model wants to call a tool. Newer @google/generative-ai
+      // versions dropped the singular .functionCall() helper in favor of
+      // .functionCalls() returning an array.
+      const functionCall = response.functionCalls?.()?.[0];
       if (functionCall) {
         const { name, args } = functionCall;
         logger.info(`Model requested tool call: ${name} with args: ${JSON.stringify(args)}`);

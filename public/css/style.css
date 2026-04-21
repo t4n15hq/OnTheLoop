@@ -1707,7 +1707,7 @@ a { color: var(--cta-primary); text-decoration: none; }
 }
 @keyframes lv-live-blink {
   0%, 100% { opacity: 1; }
-  50%      { opacity: 0.55; }
+  50%      { opacity: 0.82; }
 }
 
 .lv-hero-sign-foot {
@@ -2761,15 +2761,19 @@ a { color: var(--cta-primary); text-decoration: none; }
 
 /* Up Next — arrivals board */
 #dashboard-view .hero-ticket {
-  background: #0B0B09;
-  color: #F1EFE7;
-  border: 1px solid #0B0B09;
-  border-left: 1px solid #0B0B09;
+  background: var(--ts-paper-2);
+  color: var(--ts-ink);
+  border: 1px solid var(--ts-ink);
   border-radius: 0;
   padding: 22px 24px 20px;
   box-shadow: 8px 8px 0 var(--cta-blue);
   position: relative;
   overflow: hidden;
+}
+[data-theme="dark"] #dashboard-view .hero-ticket {
+  background: #0B0B09;
+  color: #F1EFE7;
+  border-color: #0B0B09;
 }
 #dashboard-view .hero-ticket::before {
   content: "";
@@ -2792,24 +2796,33 @@ a { color: var(--cta-primary); text-decoration: none; }
   padding-top: 8px;
   margin-bottom: 14px;
   padding-bottom: 14px;
-  border-bottom: 1px dashed rgba(241, 239, 231, 0.2);
+  border-bottom: 1px dashed var(--ts-soft-2, rgba(11, 11, 9, 0.2));
+}
+[data-theme="dark"] #dashboard-view .ticket-header {
+  border-bottom-color: rgba(241, 239, 231, 0.2);
 }
 #dashboard-view .ticket-label {
   font-family: var(--ts-mono);
   font-size: 0.68rem;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: rgba(241, 239, 231, 0.55);
+  color: var(--ts-ink-3);
   font-weight: 600;
+}
+[data-theme="dark"] #dashboard-view .ticket-label {
+  color: rgba(241, 239, 231, 0.55);
 }
 #dashboard-view .ticket-route {
   font-family: var(--font-display);
   font-size: 1.55rem;
   font-weight: 700;
   letter-spacing: -0.015em;
-  color: #F9E300;
+  color: var(--ts-ink);
   margin-top: 4px;
   text-transform: uppercase;
+}
+[data-theme="dark"] #dashboard-view .ticket-route {
+  color: #F9E300;
 }
 #dashboard-view .ticket-main {
   display: flex;
@@ -2822,16 +2835,22 @@ a { color: var(--cta-primary); text-decoration: none; }
   font-weight: 700;
   line-height: 0.95;
   letter-spacing: -0.04em;
-  color: #F9461C;
+  color: var(--cta-red);
   animation: lv-live-blink 1.4s ease-in-out infinite;
+}
+[data-theme="dark"] #dashboard-view .arrival-time {
+  color: #F9461C;
 }
 #dashboard-view .arrival-unit {
   font-family: var(--ts-mono);
   font-size: 0.8rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: rgba(241, 239, 231, 0.7);
+  color: var(--ts-ink-2);
   font-weight: 500;
+}
+[data-theme="dark"] #dashboard-view .arrival-unit {
+  color: rgba(241, 239, 231, 0.7);
 }
 
 /* Section titles — kicker style */

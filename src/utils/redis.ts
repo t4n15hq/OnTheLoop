@@ -24,7 +24,9 @@ redis.on('error', (error) => {
 
 export default redis;
 
-export const rateLimitRedis = config.redis.url
+// A bounded connection (fails fast instead of buffering forever) shared by the
+// cache path and the rate-limit store. Only BullMQ needs maxRetriesPerRequest: null.
+export const cacheRedis = config.redis.url
   ? new Redis(config.redis.url, {
       maxRetriesPerRequest: 1,
       commandTimeout: 1000,
@@ -39,6 +41,9 @@ export const rateLimitRedis = config.redis.url
       enableOfflineQueue: false,
     });
 
-rateLimitRedis.on('error', (error) => {
-  logger.error('Rate limit Redis error:', error);
+// #3 (rate-limit store) and #12 (cache) both wanted an identical bounded client — share one socket.
+export const rateLimitRedis = cacheRedis;
+
+cacheRedis.on('error', (error) => {
+  logger.error('Bounded Redis error:', error);
 });

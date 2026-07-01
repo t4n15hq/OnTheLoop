@@ -154,23 +154,11 @@ export class FavoriteController {
         channel: channel as Channel | undefined,
       });
 
-      // If the user has no Telegram link, auto-enable email so this schedule
-      // actually has a delivery channel. We only flip it ON (never off), and
-      // we only do it when the user didn't pick an explicit channel themselves.
-      let emailAutoEnabled = false;
-      if (!channel || channel === Channel.AUTO) {
-        const user = await prisma.user.findUnique({ where: { id: userId } });
-        if (user && !user.telegramChatId && !user.emailNotifications) {
-          await prisma.user.update({
-            where: { id: userId },
-            data: { emailNotifications: true },
-          });
-          emailAutoEnabled = true;
-          logger.info(`Auto-enabled email notifications for user ${userId} on first schedule`);
-        }
-      }
+      // No silent auto-enroll: enabling the EMAIL channel is an explicit
+      // opt-in the user makes in Profile → General. Flipping it on here without
+      // consent is a CAN-SPAM problem (see issue #17).
 
-      res.status(201).json({ message: 'Schedule created', schedule, emailAutoEnabled });
+      res.status(201).json({ message: 'Schedule created', schedule });
     } catch (error: any) {
       logger.error('Create schedule error:', error);
       res.status(400).json({ error: error.message });

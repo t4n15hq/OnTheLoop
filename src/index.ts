@@ -18,6 +18,7 @@ import userRoutes from './routes/user.routes';
 import favoriteRoutes from './routes/favorite.routes';
 import telegramRoutes from './routes/telegram.routes';
 import ctaRoutes from './routes/cta.routes';
+import emailRoutes from './routes/email.routes';
 
 const app = express();
 
@@ -60,6 +61,7 @@ app.use('/api', apiLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/telegram', telegramRoutes); // bot webhook + setup (no JWT)
+app.use('/api/email', emailRoutes); // one-click unsubscribe (no JWT)
 app.use('/api/cta', ctaRoutes);
 app.use('/api', favoriteRoutes);  // Catch-all for /api/* (requires auth)
 

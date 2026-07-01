@@ -507,6 +507,10 @@
         <button id="auth-toggle-btn" class="text-btn">Need an account? Register</button>
       </div>
 
+      <div id="forgot-password-wrap" class="auth-toggle-wrap">
+        <button id="forgot-password-btn" type="button" class="text-btn">Forgot password?</button>
+      </div>
+
       <div id="auth-error" class="hidden"></div>
 
       <div class="auth-ascii-foot" aria-hidden="true">●────●────●────●────●</div>
@@ -785,9 +789,20 @@
         <h4 style="margin-bottom: 14px; color: var(--ink-3); text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.14em; font-weight: 700;">
           Change password</h4>
         <form id="change-password-form" style="display: flex; flex-direction: column; gap: 12px;">
-          <input type="password" id="new-password" class="form-input" placeholder="New password (min 6 chars)" required>
+          <input type="password" id="current-password" class="form-input" placeholder="Current password" required autocomplete="current-password">
+          <input type="password" id="new-password" class="form-input" placeholder="New password (min 6 chars)" required autocomplete="new-password">
           <div id="password-msg" style="display: none; padding: 10px; border-radius: 6px; font-size: 0.88rem; text-align: center;"></div>
           <button type="submit" class="btn-shimmer" style="width: 100%;">Update password</button>
+        </form>
+
+        <h4 style="margin: 28px 0 14px; color: var(--cta-red); text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.14em; font-weight: 700;">
+          Danger zone</h4>
+        <form id="delete-account-form" style="display: flex; flex-direction: column; gap: 12px;">
+          <p style="margin: 0; color: var(--ink-3); font-size: 0.85rem; line-height: 1.55;">
+            Permanently delete your account and all saved routes, schedules and logs. This can't be undone.</p>
+          <input type="password" id="delete-password" class="form-input" placeholder="Confirm current password" required autocomplete="current-password">
+          <div id="delete-msg" style="display: none; padding: 10px; border-radius: 6px; font-size: 0.88rem; text-align: center;"></div>
+          <button type="submit" class="btn-shimmer" style="width: 100%; background: var(--cta-red);">Delete my account</button>
         </form>
       </div>
 
@@ -1054,6 +1069,42 @@
         <h4>Contact</h4>
         <p>Questions: <a href="mailto:hello@ctatrack.app">hello@ctatrack.app</a></p>
       </div>
+    </div>
+  </div>
+
+  <!-- FORGOT PASSWORD MODAL -->
+  <div id="forgot-password-modal" class="modal hidden">
+    <div class="modal-header">
+      <h2>Reset your password</h2>
+      <button class="modal-close icon-btn" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin: 0 0 18px; color: var(--ink-2); font-size: 0.92rem; line-height: 1.55;">
+        Enter your email and we'll send you a link to reset your password. The link expires in 30 minutes.
+      </p>
+      <form id="forgot-password-form" style="display: flex; flex-direction: column; gap: 12px;">
+        <input type="email" id="forgot-email" class="form-input" placeholder="Email" required autocomplete="email">
+        <div id="forgot-msg" style="display: none; padding: 10px; border-radius: 6px; font-size: 0.88rem; text-align: center;"></div>
+        <button type="submit" class="btn-shimmer" style="width: 100%;">Send reset link</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- RESET PASSWORD MODAL -->
+  <div id="reset-password-modal" class="modal hidden">
+    <div class="modal-header">
+      <h2>Choose a new password</h2>
+      <button class="modal-close icon-btn" aria-label="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin: 0 0 18px; color: var(--ink-2); font-size: 0.92rem; line-height: 1.55;">
+        Enter a new password for your account. You'll be signed out of other devices.
+      </p>
+      <form id="reset-password-form" style="display: flex; flex-direction: column; gap: 12px;">
+        <input type="password" id="reset-new-password" class="form-input" placeholder="New password (min 6 chars)" required autocomplete="new-password">
+        <div id="reset-msg" style="display: none; padding: 10px; border-radius: 6px; font-size: 0.88rem; text-align: center;"></div>
+        <button type="submit" class="btn-shimmer" style="width: 100%;">Reset password</button>
+      </form>
     </div>
   </div>
 

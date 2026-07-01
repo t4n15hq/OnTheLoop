@@ -62,6 +62,10 @@ Bug reports, feature requests, and questions land fastest in the [Discord](https
 | Tests | Playwright for critical UI flows |
 | Errors | Sentry |
 
+## Local configuration
+
+Copy `.env.example` to `.env` and fill in the values for the services you want to run locally. Production startup fails fast when required secrets or provider settings are missing.
+
 ### A few engineering notes
 
 **Request coalescing on CTA API calls** (`src/services/cta.service.ts`). When 50 users hit Belmont in the same 200ms, they share one upstream call instead of firing 50 parallel ones. Combined with adaptive TTLs (8–25s based on how imminent the next train is) and a 10-min stale-while-error fallback, CTA's often-flaky API stops being a single point of failure.

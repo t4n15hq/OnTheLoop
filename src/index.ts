@@ -7,6 +7,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import path from 'path';
 import config from './config';
+import { validateConfig } from './config/validate';
 import logger from './utils/logger';
 import { startScheduler, stopScheduler } from './services/scheduler.service';
 import { createNotificationWorker } from './jobs/notification.job';
@@ -18,6 +19,8 @@ import userRoutes from './routes/user.routes';
 import favoriteRoutes from './routes/favorite.routes';
 import telegramRoutes from './routes/telegram.routes';
 import ctaRoutes from './routes/cta.routes';
+
+validateConfig();
 
 const app = express();
 

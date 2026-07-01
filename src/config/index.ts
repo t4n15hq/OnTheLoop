@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-interface Config {
+export interface Config {
   port: number;
   nodeEnv: string;
   publicUrl: string;
@@ -61,7 +61,7 @@ const config: Config = {
     password: process.env.REDIS_PASSWORD,
   },
   jwt: {
-    secret: process.env.JWT_SECRET || 'default-secret-change-me',
+    secret: process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'dev-only-insecure-secret-for-local-dev'),
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   },
   cta: {

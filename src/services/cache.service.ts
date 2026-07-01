@@ -1,4 +1,4 @@
-import redis from '../utils/redis';
+import { cacheRedis } from '../utils/redis';
 import config from '../config';
 import logger from '../utils/logger';
 
@@ -8,7 +8,7 @@ export class CacheService {
    */
   static async get<T>(key: string): Promise<T | null> {
     try {
-      const value = await redis.get(key);
+      const value = await cacheRedis.get(key);
       if (value) {
         return JSON.parse(value) as T;
       }
@@ -27,7 +27,7 @@ export class CacheService {
       const serialized = JSON.stringify(value);
       const cacheTTL = ttl || config.cache.ttl;
 
-      await redis.setex(key, cacheTTL, serialized);
+      await cacheRedis.setex(key, cacheTTL, serialized);
     } catch (error) {
       logger.error(`Cache set error for key ${key}:`, error);
     }
@@ -38,7 +38,7 @@ export class CacheService {
    */
   static async delete(key: string): Promise<void> {
     try {
-      await redis.del(key);
+      await cacheRedis.del(key);
     } catch (error) {
       logger.error(`Cache delete error for key ${key}:`, error);
     }
@@ -49,7 +49,7 @@ export class CacheService {
    */
   static async exists(key: string): Promise<boolean> {
     try {
-      const result = await redis.exists(key);
+      const result = await cacheRedis.exists(key);
       return result === 1;
     } catch (error) {
       logger.error(`Cache exists error for key ${key}:`, error);
@@ -62,7 +62,7 @@ export class CacheService {
    */
   static async clear(): Promise<void> {
     try {
-      await redis.flushdb();
+      await cacheRedis.flushdb();
       logger.info('Cache cleared');
     } catch (error) {
       logger.error('Cache clear error:', error);

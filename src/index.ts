@@ -9,8 +9,10 @@ import path from 'path';
 import config from './config';
 import logger from './utils/logger';
 import { startScheduler, stopScheduler } from './services/scheduler.service';
-import { createNotificationWorker } from './jobs/notification.job';
+import { createNotificationWorker, notificationQueue } from './jobs/notification.job';
 import { apiLimiter } from './middleware/rate-limit.middleware';
+import prisma from './utils/db';
+import redis, { cacheRedis } from './utils/redis';
 
 // Import routes
 import authRoutes from './routes/auth.routes';
@@ -48,8 +50,16 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../public')));
 
 // Health check
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get('/health', async (_req, res) => {
+  try {
+    await Promise.all([
+      cacheRedis.ping(),
+      prisma.$queryRaw`SELECT 1`,
+    ]);
+    res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+  } catch {
+    res.status(503).json({ status: 'degraded', timestamp: new Date().toISOString() });
+  }
 });
 
 // Blanket per-IP cap on all /api/* traffic. Auth routes stack their own
@@ -80,6 +90,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 // Start server
 const PORT = config.port;
+let notificationWorker: ReturnType<typeof createNotificationWorker> | null = null;
 
 const server = app.listen(PORT, () => {
   logger.info(`CTA Track API server started on port ${PORT}`);
@@ -94,7 +105,7 @@ const server = app.listen(PORT, () => {
   // Set RUN_WORKER_IN_PROCESS=false when scaling out with a dedicated
   // worker container (e.g. `npm run worker`) to avoid double-processing.
   if (config.runWorkerInProcess) {
-    createNotificationWorker();
+    notificationWorker = createNotificationWorker();
     logger.info('Notification worker running in-process');
   } else {
     logger.info('RUN_WORKER_IN_PROCESS=false — expecting a separate worker process');
@@ -105,9 +116,16 @@ const server = app.listen(PORT, () => {
 async function shutdown(signal: string) {
   logger.info(`${signal} received, shutting down gracefully`);
   stopScheduler();
-  server.close(() => process.exit(0));
-  // Hard-exit fallback if close hangs.
-  setTimeout(() => process.exit(0), 10_000).unref();
+  const hardExit = setTimeout(() => process.exit(1), 10_000);
+  hardExit.unref();
+
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await notificationWorker?.close();
+  await notificationQueue.close();
+  await prisma.$disconnect();
+  await Promise.allSettled([redis.quit(), cacheRedis.quit()]);
+  clearTimeout(hardExit);
+  process.exit(0);
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'));

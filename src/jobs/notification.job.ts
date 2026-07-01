@@ -6,10 +6,24 @@ import { FavoriteService } from '../services/favorite.service';
 import { CTAService } from '../services/cta.service';
 import { TelegramService } from '../services/telegram.service';
 import EmailService from '../services/email.service';
+import { IMessageService } from '../services/imessage.service';
 import { Channel } from '@prisma/client';
 import config from '../config';
 
 const NOTIFICATION_QUEUE_NAME = 'notifications';
+
+/**
+ * The shared arrival formatter emits Telegram HTML (`<b>…</b>`). iMessage is
+ * plain text, so strip the tags and decode the few entities the formatter
+ * escapes. Cheap and dependency-free.
+ */
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
 
 /** HH:mm in the configured schedule timezone (default America/Chicago). */
 function currentLocalHHmm(now: Date = new Date()): string {
@@ -56,7 +70,7 @@ interface NotificationJobData {
 async function recordLog(params: {
   userId: string;
   scheduleId?: string | null;
-  channel: 'EMAIL' | 'TELEGRAM';
+  channel: 'EMAIL' | 'TELEGRAM' | 'IMESSAGE';
   status: 'SENT' | 'FAILED' | 'SKIPPED';
   detail?: string;
   kind?: 'SCHEDULED' | 'TEST';
@@ -142,6 +156,12 @@ async function processNotification(jobData: NotificationJobData) {
     const channelPref: Channel = jobData.channel ?? schedule?.channel ?? Channel.AUTO;
     const telegramReady = Boolean(user.telegramChatId && TelegramService.isConfigured());
     const emailReady = Boolean(user.email && user.emailNotifications);
+    // iMessage is opt-in and never used by AUTO. It requires the feature flag,
+    // a verified address, and a ready provider. Only fires for an explicit
+    // IMESSAGE choice or BOTH.
+    const imessageReady = Boolean(
+      user.imessageAddress && user.imessageVerifiedAt && IMessageService.isReady()
+    );
 
     const shouldSendTelegram =
       telegramReady &&
@@ -156,15 +176,23 @@ async function processNotification(jobData: NotificationJobData) {
         channelPref === Channel.BOTH ||
         (channelPref === Channel.AUTO && !telegramReady));
 
-    if (!shouldSendTelegram && !shouldSendEmail) {
-      const reason = channelSkipReason(channelPref, telegramReady, emailReady);
+    const shouldSendIMessage =
+      imessageReady && (channelPref === Channel.IMESSAGE || channelPref === Channel.BOTH);
+
+    if (!shouldSendTelegram && !shouldSendEmail && !shouldSendIMessage) {
+      const reason = channelSkipReason(channelPref, telegramReady, emailReady, imessageReady);
       logger.warn(
         `No delivery channel for user ${userId} (favorite ${favoriteId}): ${reason}`
       );
       await recordLog({
         userId,
         scheduleId,
-        channel: channelPref === Channel.TELEGRAM ? 'TELEGRAM' : 'EMAIL',
+        channel:
+          channelPref === Channel.TELEGRAM
+            ? 'TELEGRAM'
+            : channelPref === Channel.IMESSAGE
+            ? 'IMESSAGE'
+            : 'EMAIL',
         status: 'SKIPPED',
         detail: reason,
         kind,
@@ -254,16 +282,55 @@ async function processNotification(jobData: NotificationJobData) {
         });
       }
     }
+
+    if (shouldSendIMessage) {
+      // IMessageService.sendIMessage is fail-safe (never throws), but wrap in
+      // try/catch anyway so nothing here can break the other channels.
+      try {
+        const body = htmlToPlainText(CTAService.formatArrivalsForSMS(arrivals, title));
+        const result = await IMessageService.sendIMessage(user.imessageAddress!, body);
+        if (result.ok) {
+          logger.info(`iMessage notification sent for favorite ${favoriteId}`);
+          await recordLog({ userId, scheduleId, channel: 'IMESSAGE', status: 'SENT', kind });
+        } else {
+          await recordLog({
+            userId,
+            scheduleId,
+            channel: 'IMESSAGE',
+            status: 'FAILED',
+            detail: result.detail ?? 'iMessage send returned not-ok',
+            kind,
+          });
+        }
+      } catch (err: any) {
+        logger.warn(`iMessage delivery failed for favorite ${favoriteId}:`, err);
+        await recordLog({
+          userId,
+          scheduleId,
+          channel: 'IMESSAGE',
+          status: 'FAILED',
+          detail: err?.message ?? String(err),
+          kind,
+        });
+      }
+    }
   } catch (error) {
     logger.error(`Error processing notification for favorite ${favoriteId}:`, error);
     throw error;
   }
 }
 
-function channelSkipReason(pref: Channel, telegramReady: boolean, emailReady: boolean): string {
+function channelSkipReason(
+  pref: Channel,
+  telegramReady: boolean,
+  emailReady: boolean,
+  imessageReady: boolean
+): string {
   if (pref === Channel.TELEGRAM && !telegramReady) return 'Telegram channel chosen but Telegram not linked';
   if (pref === Channel.EMAIL && !emailReady) return 'Email channel chosen but email notifications disabled';
-  if (pref === Channel.BOTH) return 'No channels available: link Telegram or enable email notifications';
+  if (pref === Channel.IMESSAGE && !imessageReady)
+    return 'iMessage channel chosen but iMessage is disabled or the address is unverified';
+  if (pref === Channel.BOTH) return 'No channels available: link Telegram, enable email, or verify iMessage';
   return 'No delivery channel: link Telegram or enable email notifications';
 }
 

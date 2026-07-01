@@ -184,12 +184,14 @@ export class FavoriteService {
   }
 
   /**
-   * Return schedules whose effective fire time (target time minus leadMinutes,
-   * interpreted in the configured schedule timezone) matches `now`, filtered
-   * by day-of-week, and that haven't already fired inside this minute window.
+   * Return the schedules whose effective fire time (target time minus
+   * leadMinutes, interpreted in the configured schedule timezone) matches
+   * `now`, filtered by day-of-week.
    *
-   * The scheduler calls this once per minute; `lastTriggeredAt` is stamped as
-   * we enqueue so a re-entrant tick can't double-fire the same schedule.
+   * These are *candidates*: dedupe is NOT done here. The caller must atomically
+   * claim each one via {@link claimSchedule} before enqueuing, so concurrent
+   * ticks / multiple replicas can't double-fire. Each returned row still
+   * carries `lastTriggeredAt` so the caller can roll a claim back on failure.
    */
   static async getDueSchedules(now: Date = new Date()) {
     try {
@@ -204,9 +206,6 @@ export class FavoriteService {
         include: { favorite: true, user: true },
       });
 
-      const minuteWindowStart = new Date(now);
-      minuteWindowStart.setSeconds(0, 0);
-
       return schedules.filter((s) => {
         if (!s.daysOfWeek.includes(dayOfWeek)) return false;
 
@@ -214,14 +213,7 @@ export class FavoriteService {
         if (mins === null) return false;
 
         const effective = ((mins - (s.leadMinutes ?? 0)) % 1440 + 1440) % 1440;
-        if (effective !== currentMinutes) return false;
-
-        // Dedupe: skip if already enqueued inside this minute window.
-        if (s.lastTriggeredAt && s.lastTriggeredAt >= minuteWindowStart) {
-          return false;
-        }
-
-        return true;
+        return effective === currentMinutes;
       });
     } catch (error) {
       logger.error('Error fetching due schedules:', error);
@@ -229,10 +221,41 @@ export class FavoriteService {
     }
   }
 
-  static async markScheduleTriggered(scheduleId: string, at: Date = new Date()) {
+  /**
+   * Atomically claim a schedule for the given minute window using a
+   * compare-and-swap on `lastTriggeredAt`. Returns `true` iff THIS caller won
+   * the race (exactly one row updated). Concurrent replicas / re-entrant ticks
+   * that lose the race get `false` and must not enqueue.
+   *
+   * The `updateMany` predicate is the CAS: it only flips `lastTriggeredAt` when
+   * the schedule has never fired (`null`) or last fired before this window
+   * (`< windowStart`), so at most one caller per window can succeed.
+   */
+  static async claimSchedule(
+    scheduleId: string,
+    windowStart: Date,
+    now: Date = new Date()
+  ): Promise<boolean> {
+    const claimed = await prisma.schedule.updateMany({
+      where: {
+        id: scheduleId,
+        OR: [{ lastTriggeredAt: null }, { lastTriggeredAt: { lt: windowStart } }],
+      },
+      data: { lastTriggeredAt: now },
+    });
+    return claimed.count === 1;
+  }
+
+  /**
+   * Undo a claim after the enqueue that should have followed it failed,
+   * restoring the previous `lastTriggeredAt` so the next tick re-claims and the
+   * notification is not silently dropped (see #12). Best-effort: even if this
+   * throws, the short claim window means the schedule fires again next tick.
+   */
+  static async releaseSchedule(scheduleId: string, previous: Date | null) {
     await prisma.schedule.update({
       where: { id: scheduleId },
-      data: { lastTriggeredAt: at },
+      data: { lastTriggeredAt: previous },
     });
   }
 }

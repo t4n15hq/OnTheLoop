@@ -1,20 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const queueAdd = vi.fn().mockResolvedValue(undefined);
-const callOrder: string[] = [];
-
+// --- BullMQ: capture enqueues (args + options) ---------------------------
+const queueAdd = vi.fn();
 vi.mock('bullmq', () => ({
   Queue: vi.fn().mockImplementation(() => ({
-    add: (...args: unknown[]) => {
-      callOrder.push('queue.add');
-      return queueAdd(...args);
-    },
+    add: (...args: unknown[]) => queueAdd(...args),
   })),
   Worker: vi.fn(),
 }));
 
+// --- Prisma: the atomic claim (updateMany) + rollback (update) -----------
+// The real FavoriteService.claimSchedule / releaseSchedule run against these,
+// so the compare-and-swap is exercised for real; we just control what the DB
+// "returns" (count 1 = claim won, count 0 = lost the race).
+const updateMany = vi.fn();
+const scheduleUpdate = vi.fn();
+vi.mock('../utils/db', () => ({
+  default: {
+    schedule: {
+      updateMany: (...args: unknown[]) => updateMany(...args),
+      update: (...args: unknown[]) => scheduleUpdate(...args),
+    },
+  },
+}));
+
 vi.mock('../utils/redis', () => ({ default: {} }));
-vi.mock('../utils/db', () => ({ default: {} }));
 vi.mock('../utils/logger', () => ({
   default: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() },
 }));
@@ -24,70 +34,88 @@ vi.mock('../services/telegram.service', () => ({
 }));
 vi.mock('../services/email.service', () => ({ default: { sendArrivalNotification: vi.fn() } }));
 
+// Keep the REAL FavoriteService (so claimSchedule / releaseSchedule actually
+// hit the mocked prisma above), but stub the candidate query so each test can
+// inject a fixed "due" list.
 const getDueSchedules = vi.fn();
-const markScheduleTriggered = vi.fn().mockImplementation(async () => {
-  callOrder.push('markScheduleTriggered');
+const getFavoriteById = vi.fn();
+vi.mock('../services/favorite.service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../services/favorite.service')>();
+  (actual.FavoriteService as unknown as Record<string, unknown>).getDueSchedules = (
+    ...args: unknown[]
+  ) => getDueSchedules(...args);
+  (actual.FavoriteService as unknown as Record<string, unknown>).getFavoriteById = (
+    ...args: unknown[]
+  ) => getFavoriteById(...args);
+  return actual;
 });
 
-vi.mock('../services/favorite.service', () => ({
-  FavoriteService: {
-    getDueSchedules: (...args: unknown[]) => getDueSchedules(...args),
-    markScheduleTriggered: (...args: unknown[]) => markScheduleTriggered(...args),
-    getFavoriteById: vi.fn(),
-  },
-}));
-
-describe('scheduleNotifications idempotency', () => {
+describe('scheduleNotifications atomic claim', () => {
   beforeEach(() => {
-    queueAdd.mockClear();
+    queueAdd.mockReset().mockResolvedValue(undefined);
+    updateMany.mockReset();
+    scheduleUpdate.mockReset().mockResolvedValue({});
     getDueSchedules.mockReset();
-    markScheduleTriggered.mockClear();
-    callOrder.length = 0;
+    getFavoriteById.mockReset();
   });
 
-  it('stamps lastTriggeredAt BEFORE enqueuing, so a concurrent tick cannot double-fire', async () => {
-    getDueSchedules.mockResolvedValueOnce([
-      { id: 's1', userId: 'u1', favoriteId: 'f1' },
+  it('two concurrent runs on the same window enqueue exactly ONE job', async () => {
+    // Both ticks see the same schedule as due...
+    getDueSchedules.mockResolvedValue([
+      { id: 's1', userId: 'u1', favoriteId: 'f1', lastTriggeredAt: null },
     ]);
+    // ...but only the first claim flips the row (count 1); the loser gets 0.
+    updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
 
     const { scheduleNotifications } = await import('./notification.job');
-    await scheduleNotifications();
+    await Promise.all([scheduleNotifications(), scheduleNotifications()]);
 
-    expect(markScheduleTriggered).toHaveBeenCalledTimes(1);
-    expect(markScheduleTriggered).toHaveBeenCalledWith('s1', expect.any(Date));
+    expect(updateMany).toHaveBeenCalledTimes(2);
     expect(queueAdd).toHaveBeenCalledTimes(1);
-    expect(callOrder).toEqual(['markScheduleTriggered', 'queue.add']);
+
+    // Deterministic, window-scoped jobId is the second dedupe layer.
+    const opts = queueAdd.mock.calls[0][2] as { jobId?: string };
+    expect(opts.jobId).toMatch(/^s1:.+Z$/);
   });
 
-  it('enqueues one job per due schedule, stamping each before its enqueue', async () => {
-    getDueSchedules.mockResolvedValueOnce([
-      { id: 'a', userId: 'u', favoriteId: 'fa' },
-      { id: 'b', userId: 'u', favoriteId: 'fb' },
-      { id: 'c', userId: 'u', favoriteId: 'fc' },
+  it('does not enqueue when the claim is lost (count 0)', async () => {
+    getDueSchedules.mockResolvedValue([
+      { id: 's3', userId: 'u', favoriteId: 'f', lastTriggeredAt: new Date() },
     ]);
+    updateMany.mockResolvedValueOnce({ count: 0 });
 
     const { scheduleNotifications } = await import('./notification.job');
     await scheduleNotifications();
 
-    expect(markScheduleTriggered).toHaveBeenCalledTimes(3);
-    expect(queueAdd).toHaveBeenCalledTimes(3);
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    expect(queueAdd).not.toHaveBeenCalled();
+  });
 
-    // For every queue.add in the sequence, the immediately preceding event
-    // must be a markScheduleTriggered.
-    for (let i = 0; i < callOrder.length; i++) {
-      if (callOrder[i] === 'queue.add') {
-        expect(callOrder[i - 1]).toBe('markScheduleTriggered');
-      }
-    }
+  it('enqueue failure does not leave the schedule marked delivered (rolls the claim back)', async () => {
+    getDueSchedules.mockResolvedValue([
+      { id: 's2', userId: 'u', favoriteId: 'f', lastTriggeredAt: null },
+    ]);
+    updateMany.mockResolvedValueOnce({ count: 1 }); // claim wins
+    queueAdd.mockRejectedValueOnce(new Error('redis down')); // enqueue fails
+
+    const { scheduleNotifications } = await import('./notification.job');
+    await expect(scheduleNotifications()).resolves.toBeUndefined();
+
+    expect(queueAdd).toHaveBeenCalledTimes(1);
+    // Rollback restores the previous lastTriggeredAt (null) so the next tick retries.
+    expect(scheduleUpdate).toHaveBeenCalledWith({
+      where: { id: 's2' },
+      data: { lastTriggeredAt: null },
+    });
   });
 
   it('does nothing when no schedules are due', async () => {
-    getDueSchedules.mockResolvedValueOnce([]);
+    getDueSchedules.mockResolvedValue([]);
 
     const { scheduleNotifications } = await import('./notification.job');
     await scheduleNotifications();
 
-    expect(markScheduleTriggered).not.toHaveBeenCalled();
+    expect(updateMany).not.toHaveBeenCalled();
     expect(queueAdd).not.toHaveBeenCalled();
   });
 

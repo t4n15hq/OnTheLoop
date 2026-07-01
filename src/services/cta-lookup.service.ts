@@ -3,8 +3,8 @@ import config from '../config';
 import logger from '../utils/logger';
 import { CacheService } from './cache.service';
 
-const CTA_TRAIN_API_BASE = 'http://lapi.transitchicago.com/api/1.0';
-const CTA_BUS_API_BASE = 'http://www.ctabustracker.com/bustime/api/v2';
+const CTA_TRAIN_API_BASE = 'https://lapi.transitchicago.com/api/1.0';
+const CTA_BUS_API_BASE = 'https://www.ctabustracker.com/bustime/api/v2';
 
 interface BusRoute {
   rt: string;

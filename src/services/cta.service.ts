@@ -9,8 +9,8 @@ import {
 import { CacheService } from './cache.service';
 import { createCoalescer } from '../utils/coalesce';
 
-const CTA_TRAIN_API_BASE = 'http://lapi.transitchicago.com/api/1.0';
-const CTA_BUS_API_BASE = 'http://www.ctabustracker.com/bustime/api/v2';
+const CTA_TRAIN_API_BASE = 'https://lapi.transitchicago.com/api/1.0';
+const CTA_BUS_API_BASE = 'https://www.ctabustracker.com/bustime/api/v2';
 
 // Stale-while-error: keep the last good response around for up to 10 min so we
 // can serve something if CTA returns a 500 or times out on the next call.

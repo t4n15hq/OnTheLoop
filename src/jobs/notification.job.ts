@@ -223,6 +223,7 @@ async function processNotification(jobData: NotificationJobData) {
           minutesAway: a.minutesAway.toString(),
         }));
         const ok = await EmailService.sendArrivalNotification(
+          user.id,
           user.email,
           title,
           formatted,

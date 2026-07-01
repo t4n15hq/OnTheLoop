@@ -54,6 +54,21 @@ export const passwordChangeLimiter = makeLimiter('rl:password:', {
   message: { error: 'Too many password changes. Try again later.' },
 });
 
+// Password reset request + completion. Kept tight: forgot-password can email
+// arbitrary addresses, reset-password is a token-guessing surface.
+export const passwordResetLimiter = makeLimiter('rl:password-reset:', {
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many password reset requests. Try again later.' },
+});
+
+// Account deletion is irreversible; keep the per-IP cap low.
+export const accountDeleteLimiter = makeLimiter('rl:account-delete:', {
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: { error: 'Too many account deletion attempts. Try again later.' },
+});
+
 export const telegramLinkLimiter = makeLimiter('rl:telegram-link:', {
   windowMs: 60 * 60 * 1000,
   max: 20,

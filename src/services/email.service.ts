@@ -77,6 +77,42 @@ class EmailService {
     }
   }
 
+  /**
+   * Send a password reset link. `resetLink` already embeds the one-time token
+   * and points at config.publicUrl.
+   */
+  async sendPasswordResetEmail(to: string, resetLink: string): Promise<boolean> {
+    const subject = 'Reset your On The Loop password';
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head><meta charset="utf-8"></head>
+        <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background-color:#050505;color:#EDEDED;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+            <tr>
+              <td style="padding:20px 0;text-align:center;">
+                <div style="max-width:600px;margin:0 auto;background-color:#0F0F0F;border:1px solid #262626;border-radius:16px;overflow:hidden;text-align:left;">
+                  <div style="padding:24px 32px;border-bottom:1px solid #262626;">
+                    <div style="font-weight:800;font-size:20px;letter-spacing:-1px;color:#EDEDED;"><span style="color:#2E9CFF;">⟲</span> LOOP</div>
+                  </div>
+                  <div style="padding:32px;">
+                    <div style="font-size:22px;font-weight:700;margin-bottom:16px;">Reset your password</div>
+                    <p style="color:#AAAAAA;font-size:14px;line-height:1.6;margin:0 0 24px 0;">
+                      We received a request to reset your On The Loop password. This link expires in 30 minutes and can be used once. If you didn't request this, you can safely ignore this email.
+                    </p>
+                    <a href="${resetLink}" style="display:inline-block;color:#050505;background-color:#2E9CFF;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px;">Reset password</a>
+                    <p style="color:#666666;font-size:12px;font-family:monospace;line-height:1.6;margin:24px 0 0 0;word-break:break-all;">${resetLink}</p>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          </table>
+        </body>
+      </html>
+    `;
+    return this.sendEmail(to, subject, html);
+  }
+
   async sendArrivalNotification(
     userId: string,
     email: string,

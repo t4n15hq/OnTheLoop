@@ -23,7 +23,7 @@ export const authMiddleware = async (
     }
 
     const token = authHeader.substring(7);
-    const decoded = AuthService.verifyToken(token);
+    const decoded = await AuthService.verifyToken(token);
 
     req.user = {
       userId: decoded.userId,
@@ -48,7 +48,7 @@ export const optionalAuthMiddleware = async (
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) return next();
   try {
-    const decoded = AuthService.verifyToken(authHeader.substring(7));
+    const decoded = await AuthService.verifyToken(authHeader.substring(7));
     req.user = { userId: decoded.userId, email: decoded.email };
   } catch {
     // Ignore — treat as anonymous.

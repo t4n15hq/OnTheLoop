@@ -17,7 +17,6 @@
     "test:e2e": "playwright test",
     "test:all": "vitest run && playwright test",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

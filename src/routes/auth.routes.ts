@@ -5,12 +5,15 @@ import {
   loginValidation,
   passwordUpdateValidation,
   profileUpdateValidation,
+  forgotPasswordValidation,
+  resetPasswordValidation,
 } from '../controllers/auth.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 import {
   loginLimiter,
   registerLimiter,
   passwordChangeLimiter,
+  passwordResetLimiter,
   telegramLinkLimiter,
 } from '../middleware/rate-limit.middleware';
 
@@ -18,6 +21,19 @@ const router = Router();
 
 router.post('/register', registerLimiter, registerValidation, AuthController.register);
 router.post('/login', loginLimiter, loginValidation, AuthController.login);
+
+router.post(
+  '/forgot-password',
+  passwordResetLimiter,
+  forgotPasswordValidation,
+  AuthController.forgotPassword
+);
+router.post(
+  '/reset-password',
+  passwordResetLimiter,
+  resetPasswordValidation,
+  AuthController.resetPassword
+);
 
 router.put(
   '/password',

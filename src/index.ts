@@ -17,6 +17,7 @@ import redis, { cacheRedis } from './utils/redis';
 
 // Import routes
 import authRoutes from './routes/auth.routes';
+import accountRoutes from './routes/account.routes';
 import userRoutes from './routes/user.routes';
 import favoriteRoutes from './routes/favorite.routes';
 import telegramRoutes from './routes/telegram.routes';
@@ -82,6 +83,7 @@ app.use('/api', apiLimiter);
 
 // Routes - Order matters! More specific routes must come before catch-all routes
 app.use('/api/auth', authRoutes);
+app.use('/api/account', accountRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/telegram', telegramRoutes); // bot webhook + setup (no JWT)
 app.use('/api/email', emailRoutes); // one-click unsubscribe (no JWT)

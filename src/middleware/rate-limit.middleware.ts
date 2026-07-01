@@ -41,6 +41,25 @@ export const passwordChangeLimiter = rateLimit({
   message: { error: 'Too many password changes. Try again later.' },
 });
 
+// Password reset request + completion. Kept tight: forgot-password can email
+// arbitrary addresses, reset-password is a token-guessing surface.
+export const passwordResetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many password reset requests. Try again later.' },
+});
+
+// Account deletion is irreversible; keep the per-IP cap low.
+export const accountDeleteLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many account deletion attempts. Try again later.' },
+});
+
 export const telegramLinkLimiter = rateLimit({
   store: redisStore('rl:telegram-link:'),
   windowMs: 60 * 60 * 1000,

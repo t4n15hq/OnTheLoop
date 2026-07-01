@@ -288,13 +288,22 @@ export function createNotificationWorker() {
 }
 
 /**
- * Scan active schedules whose effective fire minute matches now, enqueue a job
- * per match, and stamp `lastTriggeredAt` to prevent duplicate enqueues in the
- * same minute window.
+ * Scan active schedules whose effective fire minute matches now and enqueue a
+ * job per match. Dedupe is two-layered and safe across multiple replicas:
+ *   1. An atomic DB compare-and-swap ({@link FavoriteService.claimSchedule})
+ *      guarantees exactly one caller wins the claim for a given minute window.
+ *   2. A deterministic BullMQ `jobId` (`${scheduleId}:${windowStart}`) makes a
+ *      duplicate enqueue for the same window a no-op at the queue layer.
+ * The claim happens BEFORE the enqueue; if the enqueue fails we roll the claim
+ * back so the next tick re-delivers instead of leaving it falsely marked (#12).
  */
 export async function scheduleNotifications() {
   try {
     const now = new Date();
+    // Start of the current minute — the dedupe window shared by concurrent ticks.
+    const windowStart = new Date(now);
+    windowStart.setSeconds(0, 0);
+
     const due = await FavoriteService.getDueSchedules(now);
 
     if (due.length > 0) {
@@ -304,26 +313,41 @@ export async function scheduleNotifications() {
     }
 
     for (const schedule of due) {
-      // Stamp BEFORE enqueueing so a concurrent tick / multi-instance deploy
-      // can't double-fire.
-      await FavoriteService.markScheduleTriggered(schedule.id, now);
+      // Atomic compare-and-swap: only the caller that flips lastTriggeredAt for
+      // this window may enqueue. Concurrent replicas / re-entrant ticks lose the
+      // race, get `false`, and skip — no double-send.
+      const claimed = await FavoriteService.claimSchedule(schedule.id, windowStart, now);
+      if (!claimed) {
+        logger.debug(`Schedule ${schedule.id} already claimed for this window; skipping`);
+        continue;
+      }
 
-      await notificationQueue.add(
-        'send-notification',
-        {
-          userId: schedule.userId,
-          favoriteId: schedule.favoriteId,
-          scheduleId: schedule.id,
-          kind: 'SCHEDULED',
-        } satisfies NotificationJobData,
-        {
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 2000 },
-          removeOnComplete: { count: 100 },
-          removeOnFail: { count: 500 },
-        }
-      );
-      logger.info(`Queued notification for schedule ${schedule.id} (user ${schedule.userId})`);
+      try {
+        await notificationQueue.add(
+          'send-notification',
+          {
+            userId: schedule.userId,
+            favoriteId: schedule.favoriteId,
+            scheduleId: schedule.id,
+            kind: 'SCHEDULED',
+          } satisfies NotificationJobData,
+          {
+            // Deterministic id → BullMQ drops a duplicate enqueue for the same
+            // window as a second dedupe layer behind the DB claim.
+            jobId: `${schedule.id}:${windowStart.toISOString()}`,
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 2000 },
+            removeOnComplete: { count: 100 },
+            removeOnFail: { count: 500 },
+          }
+        );
+        logger.info(`Queued notification for schedule ${schedule.id} (user ${schedule.userId})`);
+      } catch (err) {
+        // Enqueue failed after we claimed the window (e.g. Redis down). Roll the
+        // claim back so the schedule isn't left marked-but-undelivered.
+        logger.error(`Enqueue failed for schedule ${schedule.id}; rolling back claim:`, err);
+        await FavoriteService.releaseSchedule(schedule.id, schedule.lastTriggeredAt ?? null);
+      }
     }
   } catch (error) {
     logger.error('Error scheduling notifications:', error);

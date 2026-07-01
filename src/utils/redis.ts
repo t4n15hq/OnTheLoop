@@ -23,3 +23,22 @@ redis.on('error', (error) => {
 });
 
 export default redis;
+
+export const rateLimitRedis = config.redis.url
+  ? new Redis(config.redis.url, {
+      maxRetriesPerRequest: 1,
+      commandTimeout: 1000,
+      enableOfflineQueue: false,
+    })
+  : new Redis({
+      host: config.redis.host,
+      port: config.redis.port,
+      password: config.redis.password,
+      maxRetriesPerRequest: 1,
+      commandTimeout: 1000,
+      enableOfflineQueue: false,
+    });
+
+rateLimitRedis.on('error', (error) => {
+  logger.error('Rate limit Redis error:', error);
+});

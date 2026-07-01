@@ -6,6 +6,7 @@ interface Config {
   port: number;
   nodeEnv: string;
   publicUrl: string;
+  trustProxy: boolean | number;
   databaseUrl: string;
   redis: {
     url?: string;
@@ -40,6 +41,9 @@ interface Config {
   cache: {
     ttl: number;
   };
+  features: {
+    ai: boolean;
+  };
   // IANA zone that schedules' HH:mm values are interpreted in.
   // Defaults to Chicago so the app behaves correctly regardless of host TZ.
   scheduleTimezone: string;
@@ -49,10 +53,18 @@ interface Config {
   runWorkerInProcess: boolean;
 }
 
+function parseTrustProxy(value: string | undefined): boolean | number {
+  if (!value || value === 'false') return false;
+  if (value === 'true') return true;
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : false;
+}
+
 const config: Config = {
   port: parseInt(process.env.PORT || '3000', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
   publicUrl: process.env.PUBLIC_URL || 'http://localhost:3000',
+  trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   databaseUrl: process.env.DATABASE_URL || '',
   redis: {
     url: process.env.REDIS_URL,
@@ -88,6 +100,9 @@ const config: Config = {
   } : undefined,
   cache: {
     ttl: parseInt(process.env.CACHE_TTL || '60', 10),
+  },
+  features: {
+    ai: process.env.ENABLE_AI !== 'false',
   },
   scheduleTimezone: process.env.SCHEDULE_TIMEZONE || 'America/Chicago',
   runWorkerInProcess: process.env.RUN_WORKER_IN_PROCESS !== 'false',

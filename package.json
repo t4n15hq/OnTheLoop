@@ -42,6 +42,7 @@
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^7.0.10",
+    "rate-limit-redis": "^5.0.0",
     "winston": "^3.15.0"
   },
   "devDependencies": {

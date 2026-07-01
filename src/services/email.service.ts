@@ -52,7 +52,7 @@ class EmailService {
         html,
       });
 
-      logger.info(`Email sent to ${to}: ${info.messageId}`);
+      logger.info(`Email sent: ${info.messageId}`);
       return true;
     } catch (error) {
       logger.error('Error sending email:', error);

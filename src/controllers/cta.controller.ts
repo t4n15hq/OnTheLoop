@@ -7,6 +7,7 @@ import { AlertsService } from '../services/alerts.service';
 import { AuthRequest } from '../middleware/auth.middleware';
 import logger from '../utils/logger';
 import prisma from '../utils/db';
+import { reportError } from '../utils/sentry';
 
 export class CTAController {
   /**
@@ -17,7 +18,7 @@ export class CTAController {
       const routes = await CTALookupService.getBusRoutes();
       res.status(200).json({ routes });
     } catch (error: any) {
-      logger.error('Get bus routes error:', error);
+      reportError(error, { route: 'cta/bus-routes' });
       res.status(500).json({ error: error.message });
     }
   }
@@ -37,7 +38,7 @@ export class CTAController {
       const directions = await CTALookupService.getBusDirections(routeId);
       res.status(200).json({ route: routeId, directions });
     } catch (error: any) {
-      logger.error('Get bus directions error:', error);
+      reportError(error, { route: 'cta/bus-directions', routeId: req.params.routeId });
       res.status(500).json({ error: error.message });
     }
   }
@@ -74,7 +75,7 @@ export class CTAController {
         stops,
       });
     } catch (error: any) {
-      logger.error('Get bus stops error:', error);
+      reportError(error, { route: 'cta/bus-stops', routeId: req.params.routeId });
       res.status(500).json({ error: error.message });
     }
   }
@@ -119,7 +120,7 @@ export class CTAController {
         stops,
       });
     } catch (error: any) {
-      logger.error('Find nearby stops error:', error);
+      reportError(error, { route: 'cta/nearby-stops', routeId: req.params.routeId });
       res.status(500).json({ error: error.message });
     }
   }
@@ -132,7 +133,7 @@ export class CTAController {
       const lines = CTALookupService.getTrainLines();
       res.status(200).json({ lines });
     } catch (error: any) {
-      logger.error('Get train lines error:', error);
+      reportError(error, { route: 'cta/train-lines' });
       res.status(500).json({ error: error.message });
     }
   }
@@ -146,7 +147,7 @@ export class CTAController {
       const stations = await CTALookupService.getTrainStations(line);
       res.status(200).json({ line, stations });
     } catch (error: any) {
-      logger.error('Get train stations error:', error);
+      reportError(error, { route: 'cta/train-stations', line: req.params.line });
       res.status(500).json({ error: error.message });
     }
   }
@@ -173,7 +174,7 @@ export class CTAController {
 
       res.status(200).json({ location });
     } catch (error: any) {
-      logger.error('Resolve location error:', error);
+      reportError(error, { route: 'cta/resolve-location', queryLength: String(req.query.query || '').length });
       res.status(500).json({ error: error.message });
     }
   }
@@ -216,7 +217,7 @@ export class CTAController {
         stops: result.stops,
       });
     } catch (error: any) {
-      logger.error('Find stops near natural location error:', error);
+      reportError(error, { route: 'cta/stops-near-location', routeId: req.params.routeId });
       res.status(500).json({ error: error.message });
     }
   }
@@ -431,7 +432,11 @@ export class CTAController {
                           break; // Found arrivals for this route, move to next
                         }
                       } catch (err) {
-                        logger.error(`Error fetching arrivals for stop ${stop.stpid}:`, err);
+                        reportError(err, {
+                          route: 'cta/transit-suggestion/stop-arrivals',
+                          routeNumber: routeNum,
+                          stopId: stop.stpid,
+                        });
                         continue;
                       }
                     }
@@ -439,7 +444,10 @@ export class CTAController {
                   }
                 }
               } catch (err) {
-                logger.error(`Error processing bus route ${routeNum}:`, err);
+                reportError(err, {
+                  route: 'cta/transit-suggestion/bus-route',
+                  routeNumber: routeNum,
+                });
                 continue;
               }
             }
@@ -469,7 +477,11 @@ export class CTAController {
             realTimeArrivals = routeArrivals.length > 0 ? { routes: routeArrivals } : null;
 
           } catch (err) {
-            logger.error('Error handling transit directions:', err);
+            reportError(err, {
+              route: 'cta/transit-suggestion/directions',
+              userId,
+              queryLength: query.length,
+            });
             conversationalResponse = await GeminiMapsService.getTransitSuggestion(query);
           }
         }
@@ -567,7 +579,11 @@ export class CTAController {
               }
             }
           } catch (err) {
-            logger.warn('Could not fetch real-time arrivals:', err);
+            reportError(err, {
+              route: 'cta/transit-suggestion/route-arrivals',
+              routeNumber: parsed.routeNumber,
+              userId,
+            });
           }
         }
       }
@@ -578,7 +594,11 @@ export class CTAController {
         realTimeArrivals
       });
     } catch (error: any) {
-      logger.error('Get transit suggestion error:', error);
+      reportError(error, {
+        route: 'cta/transit-suggestion',
+        userId: req.user?.userId,
+        queryLength: typeof req.query.query === 'string' ? req.query.query.length : 0,
+      });
       res.status(500).json({ error: error.message });
     }
   }
@@ -618,7 +638,7 @@ export class CTAController {
 
       res.status(200).json({ arrivals });
     } catch (error: any) {
-      logger.error('Get arrivals error:', error);
+      reportError(error, { route: 'cta/arrivals', type: req.query.type, routeId: req.query.routeId });
       res.status(500).json({ error: error.message });
     }
   }
@@ -635,7 +655,7 @@ export class CTAController {
       const config = await AISMSService.parseRouteConfig(query);
       res.status(200).json({ config });
     } catch (error: any) {
-      logger.error('Parse route config error:', error);
+      reportError(error, { route: 'cta/parse-route-config', queryLength: String(req.body?.query || '').length });
       res.status(500).json({ error: error.message });
     }
   }
@@ -660,7 +680,7 @@ export class CTAController {
       const all = await AlertsService.getAllActive();
       res.status(200).json({ alerts: all.filter((a) => a.majorAlert) });
     } catch (error: any) {
-      logger.error('Get alerts error:', error);
+      reportError(error, { route: 'cta/alerts', userId: req.user?.userId });
       res.status(500).json({ error: error.message });
     }
   }

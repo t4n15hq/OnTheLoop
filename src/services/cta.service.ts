@@ -48,25 +48,48 @@ async function httpGet<T>(url: string, params: Record<string, unknown>, timeoutM
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Timestamp parsing. Both endpoints return wall-clock Chicago time with no TZ.
-// TZ=America/Chicago is set in the Dockerfile and in prod. In other envs this
-// still resolves to the host's local clock, which matches a Chicago developer.
+// Timestamp parsing. Both endpoints return Chicago wall-clock time with no TZ.
 // ────────────────────────────────────────────────────────────────────────────
-function parseTrainTime(s: string): Date {
-  // "2026-04-20T14:02:02" — ISO-ish, no TZ → parsed as local.
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? new Date(NaN) : d;
+function parseChicago(y: number, mo: number, d: number, h: number, mi: number, s = 0): Date {
+  const asUTC = Date.UTC(y, mo - 1, d, h, mi, s);
+  const tzName = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago',
+    timeZoneName: 'short',
+  })
+    .formatToParts(new Date(asUTC))
+    .find((part) => part.type === 'timeZoneName')?.value;
+  const offsetH = tzName === 'CDT' ? 5 : 6;
+  return new Date(asUTC + offsetH * 3_600_000);
 }
 
-function parseBusTime(s: string): Date {
-  // "20260420 14:11" → "2026-04-20T14:11:00"
+export function parseTrainTime(s: string): Date {
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return new Date(NaN);
+  const [, y, mo, d, hh, mm, ss] = m;
+  return parseChicago(
+    parseInt(y, 10),
+    parseInt(mo, 10),
+    parseInt(d, 10),
+    parseInt(hh, 10),
+    parseInt(mm, 10),
+    parseInt(ss, 10)
+  );
+}
+
+export function parseBusTime(s: string): Date {
   const m = s.match(/^(\d{4})(\d{2})(\d{2})\s+(\d{2}):(\d{2})$/);
   if (!m) return new Date(NaN);
   const [, y, mo, d, hh, mm] = m;
-  return new Date(`${y}-${mo}-${d}T${hh}:${mm}:00`);
+  return parseChicago(
+    parseInt(y, 10),
+    parseInt(mo, 10),
+    parseInt(d, 10),
+    parseInt(hh, 10),
+    parseInt(mm, 10)
+  );
 }
 
-function minutesFromNow(arrival: Date, now: Date = new Date()): number {
+export function minutesFromNow(arrival: Date, now: Date = new Date()): number {
   if (isNaN(arrival.getTime())) return 0;
   const diff = Math.round((arrival.getTime() - now.getTime()) / 60_000);
   return Math.max(0, diff);

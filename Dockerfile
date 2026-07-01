@@ -1,5 +1,8 @@
 FROM node:20-alpine
 
+ENV TZ=America/Chicago
+RUN apk add --no-cache tzdata
+
 WORKDIR /app
 
 # Install all deps (devDeps are needed for `tsc` at build time and `prisma`

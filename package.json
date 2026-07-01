@@ -1,5 +1,5 @@
 {
-  "name": "cta-track",
+  "name": "ontheloop",
   "version": "2.0.0",
   "description": "CTA Train & Bus tracker with Telegram bot + web app notifications",
   "main": "dist/index.js",
@@ -14,6 +14,7 @@
     "worker": "tsx src/worker.ts",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

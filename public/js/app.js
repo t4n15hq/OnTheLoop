@@ -1,5 +1,8 @@
+/* ================= IMPORTS ================= */
+import { apiCall, getToken, setToken, setUnauthorizedHandler } from './api.js';
+import { log, escapeHtml, escapeAttr, el, setOptions } from './render.js';
+
 /* ================= CONFIG ================= */
-const API_BASE = window.location.origin;
 const LINE_COLORS = {
   'Red': 'var(--cta-red)', 'Blue': 'var(--cta-blue)', 'Brown': 'var(--cta-brown)',
   'Green': 'var(--cta-green)', 'Orange': 'var(--cta-orange)', 'Purple': 'var(--cta-purple)',
@@ -13,7 +16,9 @@ const LINE_HEX = {
   'Pink': '#E27EA6', 'Yellow': '#F9E300', 'BUS': '#337EA9'
 };
 
-let authToken = localStorage.getItem('authToken');
+// The auth token now lives in api.js; app code goes through get/setToken.
+// Tell api.js to log the user out when a request comes back 401.
+setUnauthorizedHandler(() => handleLogout());
 let currentUser = null;
 let cachedFavorites = [];
 
@@ -101,7 +106,7 @@ function setupEventListeners() {
 
   profileBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    console.log('Profile button clicked');
+    log('Profile button clicked');
     loadProfile();
     openModal('profile-modal');
   });
@@ -133,7 +138,7 @@ function setupEventListeners() {
 
   userMenuBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    console.log('User menu clicked, toggling dropdown');
+    log('User menu clicked, toggling dropdown');
     userMenuDropdown.classList.toggle('hidden');
   });
   document.addEventListener('click', () => {
@@ -589,20 +594,6 @@ async function handleChangePassword(e) {
   }
 }
 
-/* ================= API ================= */
-async function apiCall(endpoint, options = {}) {
-  const headers = { 'Content-Type': 'application/json', ...options.headers };
-  if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-  const response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
-  if (!response.ok) {
-    if (response.status === 401) handleLogout();
-    const data = await response.json().catch(() => ({}));
-    throw new Error(data.error || 'Request failed');
-  }
-  const contentType = response.headers.get("content-type");
-  if (contentType && contentType.indexOf("application/json") !== -1) return response.json();
-}
-
 /* ================= AUTH ================= */
 let isRegistering = false;
 
@@ -647,9 +638,8 @@ async function handleAuthSubmit(e) {
       body: JSON.stringify(payload)
     });
 
-    authToken = data.token;
+    setToken(data.token);
     currentUser = data.user;
-    localStorage.setItem('authToken', authToken);
     await showDashboard();
   } catch (error) {
     authError.textContent = error.message || 'Authentication failed';
@@ -660,9 +650,8 @@ async function handleAuthSubmit(e) {
   }
 }
 function handleLogout() {
-  authToken = null;
+  setToken(null);
   currentUser = null;
-  localStorage.removeItem('authToken');
   // Drop them on the sign-in screen so they can quickly log back in.
   setAuthMode(false);
   showAuth();
@@ -684,7 +673,7 @@ async function showDashboard() {
   if (landingView) landingView.classList.add('hidden');
   authView.classList.add('hidden');
   dashboardView.classList.remove('hidden');
-  if (!currentUser && authToken) await loadCurrentUser();
+  if (!currentUser && getToken()) await loadCurrentUser();
   updateWelcomeMessage();
   await loadDashboardData();
 }
@@ -692,7 +681,7 @@ async function showDashboard() {
 function applyRoute() {
   const hash = (location.hash || '').replace(/^#/, '').toLowerCase();
 
-  if (authToken) {
+  if (getToken()) {
     showDashboard();
     return;
   }
@@ -837,10 +826,6 @@ function renderServiceAlerts(alerts) {
   });
 }
 
-function escapeAttr(s) {
-  return String(s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-}
-
 /* ================= WELCOME HERO (live clock + greeting) ================= */
 let welcomeClockInterval = null;
 
@@ -914,9 +899,21 @@ async function handleChatMessage(e) {
     addChatMessage(`Couldn't reach the assistant — ${err.message || 'please try again'}.`, 'bot');
   }
 }
+// Render a tiny markup subset (**bold** + newlines) as safe DOM nodes — never
+// as innerHTML — so assistant/API replies can't inject markup (closes an XSS
+// vector; ties to #2).
+function appendRichText(parent, str) {
+  String(str).split('\n').forEach((line, i) => {
+    if (i > 0) parent.append(el('br'));
+    line.split(/\*\*(.*?)\*\*/g).forEach((part, idx) => {
+      if (part === '') return;
+      parent.append(idx % 2 === 1 ? el('strong', {}, part) : document.createTextNode(part));
+    });
+  });
+}
 function addChatMessage(text, type) {
-  const div = document.createElement('div'); div.className = `chat-bubble ${type}`;
-  div.innerHTML = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+  const div = el('div', { class: `chat-bubble ${type}` });
+  appendRichText(div, text);
   const c = document.getElementById('chat-messages'); c.appendChild(div); c.scrollTop = c.scrollHeight;
 }
 
@@ -936,26 +933,19 @@ async function loadFavorites() {
       return;
     }
 
-    list.innerHTML = data.favorites.map(fav => {
+    list.replaceChildren(...data.favorites.map(fav => {
       const isTrain = fav.routeType === 'TRAIN';
       const color = isTrain ? (LINE_HEX[fav.routeId] || '#787774') : '#337EA9';
       const chipText = isTrain ? `${fav.routeId} Line` : `Route ${fav.routeId}`;
       const chipClass = isTrain && fav.routeId === 'Yellow' ? 'fav-chip on-yellow' : 'fav-chip';
-      return `
-        <div class="card fav-card" data-id="${fav.id}" style="--line-color: ${color};">
-          <button class="icon-btn delete-fav-btn" data-id="${fav.id}" title="Delete route" aria-label="Delete route">×</button>
-          <div class="${chipClass}">${chipText}</div>
-          <div class="fav-name">${escapeHtml(fav.name)}</div>
-        </div>`;
-    }).join('');
+      return el('div', { class: 'card fav-card', 'data-id': fav.id, style: `--line-color: ${color};` },
+        el('button', { class: 'icon-btn delete-fav-btn', 'data-id': fav.id, title: 'Delete route', 'aria-label': 'Delete route' }, '×'),
+        el('div', { class: chipClass }, chipText),
+        el('div', { class: 'fav-name' }, fav.name),
+      );
+    }));
     updateDropdown(data.favorites);
   } catch (e) { console.error(e); }
-}
-
-function escapeHtml(s) {
-  return String(s || '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  }[c]));
 }
 
 /* ================= SMART ROUTE SUGGESTIONS ================= */
@@ -1033,23 +1023,22 @@ async function loadSchedules() {
       return;
     }
 
-    list.innerHTML = data.schedules.map(s => {
+    list.replaceChildren(...data.schedules.map(s => {
       const leadLabel = s.leadMinutes > 0 ? ` · ${s.leadMinutes}m early` : '';
       const channelLabel = s.channel && s.channel !== 'AUTO' ? ` · ${s.channel.toLowerCase()}` : '';
-      return `
-      <div class="alert-row">
-        <div class="alert-info">
-          <h4>${escapeHtml(s.favorite.name)}</h4>
-          <div class="alert-meta">${formatTime(s.time)} · ${formatDays(s.daysOfWeek)}${leadLabel}${channelLabel}</div>
-        </div>
-        <div class="flex items-center gap-4">
-          <button class="icon-btn test-btn" data-id="${s.id}" title="Send test now" aria-label="Send test now" style="font-size: 0.9rem;">▶</button>
-          <button class="icon-btn edit-btn" data-id="${s.id}" title="Edit alert" aria-label="Edit alert" style="font-size: 0.95rem;">✎</button>
-          <button class="icon-btn delete-btn" data-id="${s.id}" title="Delete alert" aria-label="Delete alert">×</button>
-          <div class="pill-toggle ${s.enabled ? 'active' : ''}" data-id="${s.id}" role="switch" aria-checked="${s.enabled}"></div>
-        </div>
-      </div>
-    `;}).join('');
+      return el('div', { class: 'alert-row' },
+        el('div', { class: 'alert-info' },
+          el('h4', {}, s.favorite.name),
+          el('div', { class: 'alert-meta' }, `${formatTime(s.time)} · ${formatDays(s.daysOfWeek)}${leadLabel}${channelLabel}`),
+        ),
+        el('div', { class: 'flex items-center gap-4' },
+          el('button', { class: 'icon-btn test-btn', 'data-id': s.id, title: 'Send test now', 'aria-label': 'Send test now', style: 'font-size: 0.9rem;' }, '▶'),
+          el('button', { class: 'icon-btn edit-btn', 'data-id': s.id, title: 'Edit alert', 'aria-label': 'Edit alert', style: 'font-size: 0.95rem;' }, '✎'),
+          el('button', { class: 'icon-btn delete-btn', 'data-id': s.id, title: 'Delete alert', 'aria-label': 'Delete alert' }, '×'),
+          el('div', { class: `pill-toggle ${s.enabled ? 'active' : ''}`, 'data-id': s.id, role: 'switch', 'aria-checked': String(s.enabled) }),
+        ),
+      );
+    }));
     updateNextTrip(data.schedules);
   } catch (e) { console.error(e); }
 }
@@ -1149,7 +1138,7 @@ async function updateNextTrip(schedules) {
     <div style="display: flex; flex-direction: column; align-items: flex-end; text-align: right;">
       <!-- Destination -->
       <div style="font-size: 0.85rem; letter-spacing: 0.05em; color: var(--text-secondary); margin-bottom: 12px; text-transform: uppercase;">
-        ${next.favorite.alightingStopName || 'Loop'}
+        ${escapeHtml(next.favorite.alightingStopName || 'Loop')}
       </div>
 
       <!-- Main Time & Badge Group -->
@@ -1190,17 +1179,17 @@ async function updateNextTrip(schedules) {
 async function loadBusDirections() {
   const id = document.getElementById('bus-route').value; if (!id) return;
   const s = document.getElementById('bus-direction'); s.innerHTML = '<option>...</option>';
-  try { const d = await apiCall(`/api/cta/bus/${id}/directions`); s.innerHTML = '<option value="">Select...</option>' + d.directions.map(o => `<option value="${o}">${o}</option>`).join(''); } catch (e) { s.innerHTML = '<option>Err</option>'; }
+  try { const d = await apiCall(`/api/cta/bus/${id}/directions`); setOptions(s, [{ value: '', label: 'Select...' }, ...d.directions.map(o => ({ value: o, label: o }))]); } catch (e) { s.innerHTML = '<option>Err</option>'; }
 }
 async function loadBusStops() {
   const id = document.getElementById('bus-route').value; const dir = document.getElementById('bus-direction').value; if (!id || !dir) return;
   const s = document.getElementById('bus-stop'); s.innerHTML = '<option>...</option>';
-  try { const d = await apiCall(`/api/cta/bus/${id}/stops?direction=${encodeURIComponent(dir)}`); s.innerHTML = '<option value="">Select...</option>' + d.stops.map(o => `<option value="${o.stpid}">${o.stpnm}</option>`).join(''); } catch (e) { s.innerHTML = '<option>Err</option>'; }
+  try { const d = await apiCall(`/api/cta/bus/${id}/stops?direction=${encodeURIComponent(dir)}`); setOptions(s, [{ value: '', label: 'Select...' }, ...d.stops.map(o => ({ value: o.stpid, label: o.stpnm }))]); } catch (e) { s.innerHTML = '<option>Err</option>'; }
 }
 async function loadBusAlightingStops() {
   const id = document.getElementById('bus-route').value; const dir = document.getElementById('bus-direction').value; if (!id || !dir) return;
   const s = document.getElementById('bus-alighting-stop'); s.innerHTML = '<option>...</option>';
-  try { const d = await apiCall(`/api/cta/bus/${id}/stops?direction=${encodeURIComponent(dir)}`); s.innerHTML = '<option value="">Select (Optional)...</option>' + d.stops.map(o => `<option value="${o.stpid}">${o.stpnm}</option>`).join(''); } catch (e) { s.innerHTML = '<option>Err</option>'; }
+  try { const d = await apiCall(`/api/cta/bus/${id}/stops?direction=${encodeURIComponent(dir)}`); setOptions(s, [{ value: '', label: 'Select (Optional)...' }, ...d.stops.map(o => ({ value: o.stpid, label: o.stpnm }))]); } catch (e) { s.innerHTML = '<option>Err</option>'; }
 }
 const TRAIN_DIRECTIONS = {
   'Red': ['Northbound', 'Southbound'],
@@ -1217,13 +1206,13 @@ async function loadTrainStations() {
   const line = document.getElementById('train-line').value; if (!line) return;
   const s = document.getElementById('train-station'); s.innerHTML = '<option>...</option>';
   loadTrainDirections(); // Also load directions
-  try { const d = await apiCall(`/api/cta/train/${line}/stations`); s.innerHTML = '<option value="">Select...</option>' + d.stations.map(o => `<option value="${o.map_id}">${o.station_name}</option>`).join(''); } catch (e) { s.innerHTML = '<option>Err</option>'; }
+  try { const d = await apiCall(`/api/cta/train/${line}/stations`); setOptions(s, [{ value: '', label: 'Select...' }, ...d.stations.map(o => ({ value: o.map_id, label: o.station_name }))]); } catch (e) { s.innerHTML = '<option>Err</option>'; }
 }
 
 async function loadTrainAlightingStations() {
   const line = document.getElementById('train-line').value; if (!line) return;
   const s = document.getElementById('train-alighting-station'); s.innerHTML = '<option>...</option>';
-  try { const d = await apiCall(`/api/cta/train/${line}/stations`); s.innerHTML = '<option value="">Select (Optional)...</option>' + d.stations.map(o => `<option value="${o.map_id}">${o.station_name}</option>`).join(''); } catch (e) { s.innerHTML = '<option>Err</option>'; }
+  try { const d = await apiCall(`/api/cta/train/${line}/stations`); setOptions(s, [{ value: '', label: 'Select (Optional)...' }, ...d.stations.map(o => ({ value: o.map_id, label: o.station_name }))]); } catch (e) { s.innerHTML = '<option>Err</option>'; }
 }
 
 function loadTrainDirections() {
@@ -1231,11 +1220,11 @@ function loadTrainDirections() {
   const s = document.getElementById('train-direction');
 
   if (!line || !TRAIN_DIRECTIONS[line]) {
-    s.innerHTML = '<option value="">Select Direction</option>';
+    setOptions(s, [{ value: '', label: 'Select Direction' }]);
     return;
   }
 
-  s.innerHTML = '<option value="">Select...</option>' + TRAIN_DIRECTIONS[line].map(d => `<option value="${d}">${d}</option>`).join('');
+  setOptions(s, [{ value: '', label: 'Select...' }, ...TRAIN_DIRECTIONS[line].map(d => ({ value: d, label: d }))]);
 }
 async function handleCreateFavorite(e) {
   e.preventDefault();
@@ -1574,12 +1563,12 @@ async function handleMagicFill() {
       throw new Error('Could not understand your query. Please try rephrasing or use manual entry.');
     }
 
-    console.log('Magic Fill Config:', config);
+    log('Magic Fill Config:', config);
 
     // Cleanup: Strip " Line" or " Bus" from routeId if present
     if (config.routeId) {
       config.routeId = config.routeId.replace(/\s+(Line|line|Bus|bus)$/g, '').trim();
-      console.log(`Cleaned routeId: ${config.routeId}`);
+      log(`Cleaned routeId: ${config.routeId}`);
     }
 
     // Validate config has required fields
@@ -1587,17 +1576,17 @@ async function handleMagicFill() {
       throw new Error(`AI did not provide complete route information. Got: ${JSON.stringify(config)}`);
     }
 
-    console.log(`Route Type: ${config.routeType}, Route ID: ${config.routeId}, Direction: ${config.direction}, Stop: ${config.stopName}`);
+    log(`Route Type: ${config.routeType}, Route ID: ${config.routeId}, Direction: ${config.direction}, Stop: ${config.stopName}`);
 
     btn.innerText = 'Filling...';
 
     // Helper to wait for dropdowns to populate
     const waitForOptions = async (id) => {
       const el = document.getElementById(id);
-      console.log(`Waiting for ${id} to populate...`);
+      log(`Waiting for ${id} to populate...`);
       for (let i = 0; i < 30; i++) { // Wait up to 3s
         if (el.options.length > 1 && el.options[1].text !== '...') {
-          console.log(`${id} populated with ${el.options.length} options`);
+          log(`${id} populated with ${el.options.length} options`);
           return true;
         }
         await new Promise(r => setTimeout(r, 100));
@@ -1610,16 +1599,16 @@ async function handleMagicFill() {
     const matchDirection = (id, target) => {
       const el = document.getElementById(id);
       const t = target.toLowerCase();
-      console.log(`matchDirection: Looking for "${target}" in ${id}`);
-      console.log(`Available options:`, Array.from(el.options).map(o => `"${o.value}"`));
+      log(`matchDirection: Looking for "${target}" in ${id}`);
+      log(`Available options:`, Array.from(el.options).map(o => `"${o.value}"`));
 
       // 1. Direct match
       for (let opt of el.options) {
         if (!opt.value) continue; // Skip empty options
         if (opt.value.toLowerCase().includes(t) || t.includes(opt.value.toLowerCase())) {
-          console.log(`Direct match found: "${opt.value}"`);
+          log(`Direct match found: "${opt.value}"`);
           el.value = opt.value;
-          console.log(`Set ${id} value to: "${el.value}"`);
+          log(`Set ${id} value to: "${el.value}"`);
           return true;
         }
       }
@@ -1630,9 +1619,9 @@ async function handleMagicFill() {
           for (let opt of el.options) {
             if (!opt.value) continue; // Skip empty options
             if (opt.value.toLowerCase().includes(c)) {
-              console.log(`Cardinal match found: "${opt.value}" (via "${c}")`);
+              log(`Cardinal match found: "${opt.value}" (via "${c}")`);
               el.value = opt.value;
-              console.log(`Set ${id} value to: "${el.value}"`);
+              log(`Set ${id} value to: "${el.value}"`);
               return true;
             }
           }
@@ -1645,7 +1634,7 @@ async function handleMagicFill() {
         for (let opt of el.options) {
           if (!opt.value) continue;
           if (opt.value.toLowerCase().includes('north')) {
-            console.log(`Mapped Eastbound → Northbound for diagonal line`);
+            log(`Mapped Eastbound → Northbound for diagonal line`);
             el.value = opt.value;
             return true;
           }
@@ -1654,7 +1643,7 @@ async function handleMagicFill() {
         for (let opt of el.options) {
           if (!opt.value) continue;
           if (opt.value.toLowerCase().includes('south')) {
-            console.log(`Mapped Westbound → Southbound for diagonal line`);
+            log(`Mapped Westbound → Southbound for diagonal line`);
             el.value = opt.value;
             return true;
           }
@@ -1668,7 +1657,7 @@ async function handleMagicFill() {
     // 1. Set Route Type
     const radio = document.querySelector(`input[name="route-type"][value="${config.routeType}"]`);
     if (radio) {
-      console.log(`Selecting route type: ${config.routeType}`);
+      log(`Selecting route type: ${config.routeType}`);
       radio.checked = true;
       radio.dispatchEvent(new Event('change'));
     } else {
@@ -1679,22 +1668,22 @@ async function handleMagicFill() {
     await new Promise(r => setTimeout(r, 100));
 
     if (config.routeType === 'TRAIN') {
-      console.log('Processing TRAIN route...');
+      log('Processing TRAIN route...');
       const lineSelect = document.getElementById('train-line');
-      console.log(`Setting train line to: ${config.routeId}`);
-      console.log(`Available options:`, Array.from(lineSelect.options).map(o => o.value));
+      log(`Setting train line to: ${config.routeId}`);
+      log(`Available options:`, Array.from(lineSelect.options).map(o => o.value));
 
       lineSelect.value = config.routeId;
-      console.log(`Train line value after setting: ${lineSelect.value}`);
+      log(`Train line value after setting: ${lineSelect.value}`);
       lineSelect.dispatchEvent(new Event('change'));
 
       // Wait for directions (should be fast/sync but good to be safe)
       await waitForOptions('train-direction');
 
       // Set Direction
-      console.log(`Attempting to match direction: ${config.direction}`);
+      log(`Attempting to match direction: ${config.direction}`);
       if (config.direction && matchDirection('train-direction', config.direction)) {
-        console.log('Direction matched successfully');
+        log('Direction matched successfully');
         // Trigger station load if needed (though line change usually triggers it)
         // But we need to wait for stations to load before selecting one
         await waitForOptions('train-station');
@@ -1816,6 +1805,6 @@ async function handleMagicFill() {
   }
 }
 
-function updateDropdown(f) { document.getElementById('schedule-favorite').innerHTML = '<option value="">Select...</option>' + f.map(x => `<option value="${x.id}">${x.name}</option>`).join(''); }
+function updateDropdown(f) { setOptions(document.getElementById('schedule-favorite'), [{ value: '', label: 'Select...' }, ...f.map(x => ({ value: x.id, label: x.name }))]); }
 function formatTime(t) { const [h, m] = t.split(':'); return `${h % 12 || 12}:${m} ${h >= 12 ? 'PM' : 'AM'}`; }
 function formatDays(d) { const m = ['S', 'M', 'T', 'W', 'Th', 'F', 'S']; return d.map(x => m[x]).join(' '); }

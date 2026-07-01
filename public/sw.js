@@ -1,12 +1,14 @@
 // Service worker: network-first for the app shell so deploys land immediately,
 // with a cached fallback for offline use. API calls are always passed through —
 // arrival data must be live and user-specific.
-const CACHE_VERSION = 'ontheloop-v2';
+const CACHE_VERSION = 'ontheloop-v3';
 const APP_SHELL = [
   '/',
   '/index.html',
   '/css/style.css',
   '/js/app.js',
+  '/js/api.js',
+  '/js/render.js',
   '/manifest.webmanifest',
 ];
 

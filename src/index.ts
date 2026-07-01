@@ -21,10 +21,9 @@ import ctaRoutes from './routes/cta.routes';
 
 const app = express();
 
-// Trust the reverse proxy in front of us (Railway, any ingress) so that
-// express-rate-limit and req.ip see the real client IP, not the proxy IP.
-// In dev there's no proxy, so this is a no-op.
-app.set('trust proxy', 1);
+// Must match the actual proxy hops. Default false prevents spoofed
+// X-Forwarded-For from bypassing express-rate-limit when directly exposed.
+app.set('trust proxy', config.trustProxy);
 
 // Middleware
 app.use(helmet({

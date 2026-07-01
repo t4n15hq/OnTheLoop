@@ -1,8 +1,43 @@
-import { Router } from 'express';
+import { NextFunction, Request, Response, Router } from 'express';
+import { body, query, validationResult } from 'express-validator';
 import { CTAController } from '../controllers/cta.controller';
 import { optionalAuthMiddleware } from '../middleware/auth.middleware';
+import { aiLimiter } from '../middleware/rate-limit.middleware';
+import config from '../config';
 
 const router = Router();
+
+function requireAiEnabled(_req: Request, res: Response, next: NextFunction): void {
+  if (!config.features.ai) {
+    res.status(503).json({ error: 'AI features are temporarily disabled' });
+    return;
+  }
+  next();
+}
+
+function rejectValidationErrors(req: Request, res: Response, next: NextFunction): void {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    res.status(400).json({ errors: errors.array() });
+    return;
+  }
+  next();
+}
+
+export const queryTextValidation = [
+  query('query').trim().notEmpty().withMessage('Query is required').isLength({ max: 300 }).withMessage('Query is too long'),
+  rejectValidationErrors,
+];
+
+export const locationTextValidation = [
+  query('location').trim().notEmpty().withMessage('Location is required').isLength({ max: 300 }).withMessage('Location is too long'),
+  rejectValidationErrors,
+];
+
+export const parseRouteValidation = [
+  body('query').trim().notEmpty().withMessage('Query is required').isLength({ max: 300 }).withMessage('Query is too long'),
+  rejectValidationErrors,
+];
 
 /**
  * GET /api/cta/bus/routes
@@ -47,21 +82,21 @@ router.get('/train/:line/stations', CTAController.getTrainStations);
  * Resolve a natural language location to coordinates using Gemini
  * Query params: query (e.g., "Willis Tower" or "coffee shop near Northwestern")
  */
-router.get('/location/resolve', CTAController.resolveLocation);
+router.get('/location/resolve', requireAiEnabled, aiLimiter, queryTextValidation, CTAController.resolveLocation);
 
 /**
  * GET /api/cta/bus/:routeId/stops/near-location
  * Find stops near a natural language location using Gemini
  * Query params: direction, location (natural language), radius (optional)
  */
-router.get('/bus/:routeId/stops/near-location', CTAController.findStopsNearNaturalLocation);
+router.get('/bus/:routeId/stops/near-location', requireAiEnabled, aiLimiter, locationTextValidation, CTAController.findStopsNearNaturalLocation);
 
 /**
  * GET /api/cta/transit/ask
  * Get transit suggestions using natural language
  * Query params: query (e.g., "How do I get from Northwestern to downtown?")
  */
-router.get('/transit/ask', optionalAuthMiddleware, CTAController.getTransitSuggestion);
+router.get('/transit/ask', requireAiEnabled, aiLimiter, queryTextValidation, optionalAuthMiddleware, CTAController.getTransitSuggestion);
 /**
  * GET /api/cta/arrivals
  * Get live arrivals for a specific route and stop
@@ -73,7 +108,7 @@ router.get('/arrivals', CTAController.getArrivals);
  * Parse natural language route configuration
  * Body: { query: string }
  */
-router.post('/parse-route', CTAController.parseRouteConfig);
+router.post('/parse-route', requireAiEnabled, aiLimiter, parseRouteValidation, CTAController.parseRouteConfig);
 
 /**
  * GET /api/cta/alerts

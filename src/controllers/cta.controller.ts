@@ -164,7 +164,9 @@ export class CTAController {
         return;
       }
 
+      const startedAt = Date.now();
       const location = await GeminiMapsService.resolveLocation(query);
+      logger.info(`Gemini location resolve completed in ${Date.now() - startedAt}ms`);
 
       if (!location) {
         res.status(404).json({ error: 'Could not resolve location' });
@@ -196,12 +198,14 @@ export class CTAController {
 
       const radiusMiles = radius ? parseFloat(radius as string) : 0.5;
 
+      const startedAt = Date.now();
       const result = await GeminiMapsService.findStopsNearLocation(
         location as string,
         routeId,
         direction as string,
         radiusMiles
       );
+      logger.info(`Gemini near-location lookup completed in ${Date.now() - startedAt}ms`);
 
       if (!result) {
         res.status(404).json({ error: 'Could not find stops near location' });
@@ -248,6 +252,7 @@ export class CTAController {
         res.status(400).json({ error: 'Transit query is required' });
         return;
       }
+      const startedAt = Date.now();
 
       // 1. Check if the query matches a Favorite Name (e.g. "To Home from Gym")
       // We need to import prisma to do this directly or add a method to FavoriteService.
@@ -577,6 +582,7 @@ export class CTAController {
         answer: conversationalResponse || await GeminiMapsService.getTransitSuggestion(query),
         realTimeArrivals
       });
+      logger.info(`Gemini transit suggestion completed in ${Date.now() - startedAt}ms`);
     } catch (error: any) {
       logger.error('Get transit suggestion error:', error);
       res.status(500).json({ error: error.message });
@@ -632,7 +638,9 @@ export class CTAController {
         res.status(400).json({ error: 'Query is required' });
         return;
       }
+      const startedAt = Date.now();
       const config = await AISMSService.parseRouteConfig(query);
+      logger.info(`Gemini route config parse completed in ${Date.now() - startedAt}ms`);
       res.status(200).json({ config });
     } catch (error: any) {
       logger.error('Parse route config error:', error);

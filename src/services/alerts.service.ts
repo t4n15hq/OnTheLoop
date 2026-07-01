@@ -7,7 +7,7 @@ import { CacheService } from './cache.service';
  * Docs: https://www.transitchicago.com/developers/alerts/
  */
 const CTA_ALERTS_URL =
-  process.env.CTA_ALERTS_URL || 'http://www.transitchicago.com/api/1.0/alerts.aspx';
+  process.env.CTA_ALERTS_URL || 'https://www.transitchicago.com/api/1.0/alerts.aspx';
 
 const CACHE_KEY = 'cta:alerts:v1';
 const CACHE_TTL_SECONDS = 120; // Alerts don't change often — 2 minutes is plenty.

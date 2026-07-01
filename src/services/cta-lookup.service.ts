@@ -4,8 +4,8 @@ import logger from '../utils/logger';
 import { CacheService } from './cache.service';
 import { createCoalescer } from '../utils/coalesce';
 
-const CTA_TRAIN_API_BASE = 'http://lapi.transitchicago.com/api/1.0';
-const CTA_BUS_API_BASE = 'http://www.ctabustracker.com/bustime/api/v2';
+const CTA_TRAIN_API_BASE = 'https://lapi.transitchicago.com/api/1.0';
+const CTA_BUS_API_BASE = 'https://www.ctabustracker.com/bustime/api/v2';
 const LOOKUP_TIMEOUT_MS = 5_000;
 const { withCoalescing } = createCoalescer<unknown>();
 

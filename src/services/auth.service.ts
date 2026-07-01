@@ -91,7 +91,7 @@ export class AuthService {
     });
 
     const token = this.generateToken({ userId: user.id, email: user.email });
-    logger.info(`User registered: ${user.email}`);
+    logger.info(`User registered: ${user.id}`);
 
     return { user: publicUser(user), token };
   }
@@ -110,7 +110,7 @@ export class AuthService {
     }
 
     const token = this.generateToken({ userId: user.id, email: user.email });
-    logger.info(`User logged in: ${user.email}`);
+    logger.info(`User logged in: ${user.id}`);
 
     return { user: publicUser(user), token };
   }
@@ -201,7 +201,7 @@ export class AuthService {
       where: { id: user.id },
       data: { telegramChatId: chatId, telegramLinkToken: null },
     });
-    logger.info(`Telegram linked for user: ${updated.email}`);
+    logger.info(`Telegram linked for user: ${updated.id}`);
     return updated;
   }
 

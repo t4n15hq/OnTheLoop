@@ -77,7 +77,7 @@ export class GeminiMapsService {
       };
     }
 
-    logger.info(`Resolving location via Maps grounding: ${query}`);
+    logger.info(`Resolving location via Maps grounding (queryLength=${query.length})`);
 
     const prompt =
       `Find the single best location in the Chicago, IL area for: "${query}".\n\n` +
@@ -95,7 +95,7 @@ export class GeminiMapsService {
           config: { tools: [MAPS_TOOL] },
         }),
         LOCATION_TIMEOUT_MS,
-        `resolveLocation(${query.slice(0, 40)})`
+        'resolveLocation'
       );
 
       const text = response.text ?? '';
@@ -116,15 +116,13 @@ export class GeminiMapsService {
         mapsUri: mapsChunk?.uri,
       };
 
-      logger.info(
-        `Resolved "${query}" → ${result.name} @ (${result.coordinates.lat}, ${result.coordinates.lon})`
-      );
+      logger.info(`Resolved location via Maps grounding @ (${result.coordinates.lat}, ${result.coordinates.lon})`);
       return result;
     } catch (err) {
       // Timeouts and other resolution failures are non-fatal for chat: callers
       // fall back to the ungrounded path. Log and propagate so Promise.allSettled
       // can see the rejection.
-      logger.warn(`Gemini Maps grounding failed for "${query}": ${(err as Error).message}`);
+      logger.warn(`Gemini Maps grounding failed (queryLength=${query.length}): ${(err as Error).message}`);
       throw err;
     }
   }
@@ -185,7 +183,7 @@ export class GeminiMapsService {
       return 'Walk to the nearest CTA stop.\nTake Route 22 Northbound.\nGet off near your destination.';
     }
 
-    logger.info(`Transit suggestion: ${query}`);
+    logger.info(`Transit suggestion requested (queryLength=${query.length})`);
 
     // For trip-planning questions we resolve the endpoints (when present) to
     // real coordinates via Maps grounding, then feed those to a second call

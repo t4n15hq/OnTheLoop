@@ -8,6 +8,7 @@ import { TelegramService } from '../services/telegram.service';
 import EmailService from '../services/email.service';
 import { Channel } from '@prisma/client';
 import config from '../config';
+import { reportError } from '../utils/sentry';
 
 const NOTIFICATION_QUEUE_NAME = 'notifications';
 
@@ -231,7 +232,7 @@ async function processNotification(jobData: NotificationJobData) {
           favorite.alightingStopName || undefined
         );
         if (ok) {
-          logger.info(`Email notification sent for favorite ${favoriteId} to ${user.email}`);
+          logger.info(`Email notification sent for favorite ${favoriteId} to user ${userId}`);
           await recordLog({ userId, scheduleId, channel: 'EMAIL', status: 'SENT', kind });
         } else {
           await recordLog({
@@ -256,7 +257,7 @@ async function processNotification(jobData: NotificationJobData) {
       }
     }
   } catch (error) {
-    logger.error(`Error processing notification for favorite ${favoriteId}:`, error);
+    reportError(error, { job: 'process-notification', userId, favoriteId, scheduleId, kind });
     throw error;
   }
 }
@@ -282,7 +283,7 @@ export function createNotificationWorker() {
   });
 
   worker.on('failed', (job, err) => {
-    logger.error(`Job ${job?.id} failed:`, err);
+    reportError(err, { queue: NOTIFICATION_QUEUE_NAME, jobId: job?.id, jobName: job?.name });
   });
 
   return worker;
@@ -351,7 +352,7 @@ export async function scheduleNotifications() {
       }
     }
   } catch (error) {
-    logger.error('Error scheduling notifications:', error);
+    reportError(error, { job: 'schedule-notifications' });
   }
 }
 

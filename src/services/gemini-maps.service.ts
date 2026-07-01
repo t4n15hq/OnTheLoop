@@ -69,6 +69,14 @@ export class GeminiMapsService {
    * Examples: "Willis Tower", "123 N Main St Chicago", "coffee shop near Northwestern".
    */
   static async resolveLocation(query: string): Promise<LocationResult | null> {
+    if (process.env.GEMINI_MOCK === '1') {
+      return {
+        name: 'Mock Chicago Location',
+        address: '1 N State St, Chicago, IL',
+        coordinates: { lat: 41.882, lon: -87.6278 },
+      };
+    }
+
     logger.info(`Resolving location via Maps grounding: ${query}`);
 
     const prompt =
@@ -173,6 +181,10 @@ export class GeminiMapsService {
    * Example: "How do I get from Northwestern to Willis Tower on the CTA?"
    */
   static async getTransitSuggestion(query: string): Promise<string> {
+    if (process.env.GEMINI_MOCK === '1') {
+      return 'Walk to the nearest CTA stop.\nTake Route 22 Northbound.\nGet off near your destination.';
+    }
+
     logger.info(`Transit suggestion: ${query}`);
 
     // For trip-planning questions we resolve the endpoints (when present) to

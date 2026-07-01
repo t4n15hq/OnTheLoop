@@ -29,6 +29,17 @@ interface TrainStation {
   directions: string[]; // e.g., ["1", "5"] for Southbound/Northbound
 }
 
+const CTA_MOCK = process.env.CTA_MOCK === '1';
+const MOCK_BUS_ROUTES: BusRoute[] = Array.from({ length: 60 }, (_, i) => {
+  const rt = i === 0 ? '22' : String(i + 1);
+  return { rt, rtnm: `Route ${rt}`, rtclr: '#0055aa' };
+});
+const MOCK_DIRECTIONS = ['Northbound', 'Southbound'];
+const MOCK_STOPS: BusStop[] = [
+  { stpid: '18095', stpnm: 'Clark & Belmont', lat: 41.9398, lon: -87.6505 },
+  { stpid: '10001', stpnm: 'Clark & Lake', lat: 41.8857, lon: -87.6309 },
+];
+
 /**
  * Service for looking up CTA routes, stops, and stations
  */
@@ -38,6 +49,8 @@ export class CTALookupService {
    */
   static async getBusRoutes(): Promise<BusRoute[]> {
     try {
+      if (CTA_MOCK) return MOCK_BUS_ROUTES;
+
       const cacheKey = 'bus-routes-all';
       const cached = await CacheService.get<BusRoute[]>(cacheKey);
       if (cached) {
@@ -69,6 +82,8 @@ export class CTALookupService {
    */
   static async getBusDirections(routeId: string): Promise<string[]> {
     try {
+      if (CTA_MOCK) return MOCK_DIRECTIONS;
+
       const cacheKey = CacheService.generateKey('bus-directions', routeId);
       const cached = await CacheService.get<string[]>(cacheKey);
       if (cached) {
@@ -101,6 +116,8 @@ export class CTALookupService {
    */
   static async getBusStops(routeId: string, direction: string): Promise<BusStop[]> {
     try {
+      if (CTA_MOCK) return MOCK_STOPS;
+
       const cacheKey = CacheService.generateKey('bus-stops', routeId, direction);
       const cached = await CacheService.get<BusStop[]>(cacheKey);
       if (cached) {

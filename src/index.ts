@@ -36,11 +36,22 @@ app.use(helmet({
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https:"], // Allow images from external sources just in case
         connectSrc: ["'self'", "https://lapi.transitchicago.com", "http://lapi.transitchicago.com", "http://www.ctabustracker.com"], // Allow connections to CTA APIs if frontend calls them directly (though it shouldn't)
-        upgradeInsecureRequests: null, // Disable auto-upgrade to HTTPS since we don't have an SSL certificate yet
+        upgradeInsecureRequests: [], // We now serve over a live HTTPS domain — upgrade any http subresource loads.
+        // NOTE: scriptSrc still allows 'unsafe-inline'. Removing it requires moving the
+        // inline onclick=/<script> out of index.html; deferred to #8 (frontend modularization).
       },
     },
 }));
-app.use(cors());
+
+// CORS allowlist. Only our own public origin and local dev servers may make
+// cross-origin browser requests; everything else is rejected. Credentials are
+// off because the SPA authenticates with a bearer token, not cookies.
+const allowedOrigins = [config.publicUrl, 'http://localhost:3000', 'http://localhost:3100'];
+app.use(cors({
+  origin: (origin, cb) =>
+    (!origin || allowedOrigins.includes(origin)) ? cb(null, true) : cb(new Error('Not allowed by CORS')),
+  credentials: false,
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

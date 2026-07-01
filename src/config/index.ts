@@ -29,6 +29,19 @@ interface Config {
     botUsername: string;
     webhookSecret: string;
   };
+  // iMessage delivery via the Spectrum TS cloud provider (issue #10).
+  // Disabled by default: no send is attempted unless `enabled` is true AND
+  // the mode's credentials are present. Kept behind a flag so the app
+  // compiles and runs normally with iMessage turned off.
+  imessage: {
+    enabled: boolean;
+    // "cloud"  — Spectrum Cloud shared/dedicated line (needs project creds)
+    // "local"  — Mac dev relay (Spectrum local mode, no cloud creds)
+    // "dedicated" — self-hosted relay (treated like cloud for init here)
+    mode: 'cloud' | 'local' | 'dedicated';
+    projectId: string;
+    projectSecret: string;
+  };
   email?: {
     user: string;
     pass: string;
@@ -77,6 +90,13 @@ const config: Config = {
     botToken: process.env.TELEGRAM_BOT_TOKEN || '',
     botUsername: process.env.TELEGRAM_BOT_USERNAME || '',
     webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || '',
+  },
+  imessage: {
+    // Off unless explicitly enabled. This is the master gate for issue #10.
+    enabled: process.env.IMESSAGE_ENABLED === 'true',
+    mode: (process.env.IMESSAGE_MODE as 'cloud' | 'local' | 'dedicated') || 'cloud',
+    projectId: process.env.SPECTRUM_PROJECT_ID || '',
+    projectSecret: process.env.SPECTRUM_PROJECT_SECRET || '',
   },
   email: process.env.EMAIL_USER && process.env.EMAIL_PASS ? {
     user: process.env.EMAIL_USER,

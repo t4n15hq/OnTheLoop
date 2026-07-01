@@ -18,6 +18,10 @@ model User {
   telegramChatId           String?      @unique
   telegramLinkToken        String?      @unique
   emailNotifications       Boolean      @default(false)
+  // iMessage delivery (issue #10). Phone number or Apple-ID email. We only
+  // deliver once the address is verified, so `imessageVerifiedAt` gates sends.
+  imessageAddress          String?
+  imessageVerifiedAt       DateTime?
   // Global mute: while in the future, all scheduled deliveries are skipped.
   notificationsPausedUntil DateTime?
   // Recurring quiet window in HH:mm (America/Chicago). If start > end the
@@ -107,6 +111,7 @@ enum Channel {
   AUTO
   EMAIL
   TELEGRAM
+  IMESSAGE
   BOTH
 }
 

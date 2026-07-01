@@ -31,7 +31,11 @@ app.use(helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
+        // Front-end is now ES modules loaded from same-origin files with no
+        // inline <script> blocks or on*= handlers, so 'unsafe-inline' is no
+        // longer needed for scripts (see #8/#2). styleSrc still needs it —
+        // the UI relies heavily on inline style="" attributes.
+        scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         fontSrc: ["'self'", "https://fonts.gstatic.com"],
         imgSrc: ["'self'", "data:", "https:"], // Allow images from external sources just in case

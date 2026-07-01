@@ -2,9 +2,12 @@ import axios from 'axios';
 import config from '../config';
 import logger from '../utils/logger';
 import { CacheService } from './cache.service';
+import { createCoalescer } from '../utils/coalesce';
 
 const CTA_TRAIN_API_BASE = 'http://lapi.transitchicago.com/api/1.0';
 const CTA_BUS_API_BASE = 'http://www.ctabustracker.com/bustime/api/v2';
+const LOOKUP_TIMEOUT_MS = 5_000;
+const { withCoalescing } = createCoalescer<unknown>();
 
 interface BusRoute {
   rt: string;
@@ -29,6 +32,13 @@ interface TrainStation {
   directions: string[]; // e.g., ["1", "5"] for Southbound/Northbound
 }
 
+async function fetchLookup<T>(cacheKey: string, url: string, params: Record<string, unknown>): Promise<T> {
+  return withCoalescing(cacheKey, async () => {
+    const response = await axios.get<T>(url, { params, timeout: LOOKUP_TIMEOUT_MS });
+    return response.data;
+  }) as Promise<T>;
+}
+
 /**
  * Service for looking up CTA routes, stops, and stations
  */
@@ -45,14 +55,12 @@ export class CTALookupService {
         return cached;
       }
 
-      const response = await axios.get(`${CTA_BUS_API_BASE}/getroutes`, {
-        params: {
+      const data = await fetchLookup<any>(cacheKey, `${CTA_BUS_API_BASE}/getroutes`, {
           key: config.cta.busApiKey,
           format: 'json',
-        },
       });
 
-      const routes = response.data['bustime-response']?.routes || [];
+      const routes = data['bustime-response']?.routes || [];
 
       // Cache for 24 hours (routes don't change often)
       await CacheService.set(cacheKey, routes, 86400);
@@ -75,15 +83,13 @@ export class CTALookupService {
         return cached;
       }
 
-      const response = await axios.get(`${CTA_BUS_API_BASE}/getdirections`, {
-        params: {
+      const data = await fetchLookup<any>(cacheKey, `${CTA_BUS_API_BASE}/getdirections`, {
           key: config.cta.busApiKey,
           rt: routeId,
           format: 'json',
-        },
       });
 
-      const directions = response.data['bustime-response']?.directions || [];
+      const directions = data['bustime-response']?.directions || [];
       const dirList = directions.map((d: BusDirection) => d.dir);
 
       // Cache for 24 hours
@@ -107,16 +113,14 @@ export class CTALookupService {
         return cached;
       }
 
-      const response = await axios.get(`${CTA_BUS_API_BASE}/getstops`, {
-        params: {
+      const data = await fetchLookup<any>(cacheKey, `${CTA_BUS_API_BASE}/getstops`, {
           key: config.cta.busApiKey,
           rt: routeId,
           dir: direction,
           format: 'json',
-        },
       });
 
-      const stops = response.data['bustime-response']?.stops || [];
+      const stops = data['bustime-response']?.stops || [];
 
       // Cache for 24 hours
       await CacheService.set(cacheKey, stops, 86400);

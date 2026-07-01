@@ -8,6 +8,8 @@ import { AuthRequest } from '../middleware/auth.middleware';
 import logger from '../utils/logger';
 import prisma from '../utils/db';
 
+const MAX_ASSISTANT_STOP_LOOKUPS = 8;
+
 export class CTAController {
   /**
    * Get all available bus routes
@@ -407,32 +409,38 @@ export class CTAController {
                   for (const direction of directions) {
                     const stops = await CTALookupService.getBusStops(routeNum, direction);
 
-                    // Check first few stops for arrivals
-                    for (const stop of stops.slice(0, 5)) {
-                      try {
-                        const arrivals = await CTAService.getBusPredictions(stop.stpid, routeNum, 2);
-                        const validArrivals = arrivals.filter(a => a.minutesAway !== null || a.isApproaching);
+                    const candidates = stops.slice(0, 5);
+                    const results = await Promise.all(
+                      candidates.map((stop) =>
+                        CTAService.getBusPredictions(stop.stpid, routeNum, 2)
+                          .then((arrivals) => ({ stop, arrivals }))
+                          .catch((err) => {
+                            logger.error(`Error fetching arrivals for stop ${stop.stpid}:`, err);
+                            return null;
+                          })
+                      )
+                    );
 
-                        if (validArrivals.length > 0) {
-                          logger.info(`Found ${validArrivals.length} arrivals for route ${routeNum} at ${stop.stpnm}`);
-                          routeArrivals.push({
-                            type: 'bus',
-                            route: routeNum,
-                            routeName: route.rtnm,
-                            stopName: stop.stpnm,
-                            direction,
-                            nextArrival: validArrivals[0].minutesAway || 0,
-                            arrivals: validArrivals.slice(0, 2).map(a => ({
-                              destination: a.destination,
-                              minutesAway: a.minutesAway,
-                              isApproaching: a.isApproaching
-                            }))
-                          });
-                          break; // Found arrivals for this route, move to next
-                        }
-                      } catch (err) {
-                        logger.error(`Error fetching arrivals for stop ${stop.stpid}:`, err);
-                        continue;
+                    for (const result of results) {
+                      if (!result) continue;
+                      const validArrivals = result.arrivals.filter(a => a.minutesAway !== null || a.isApproaching);
+
+                      if (validArrivals.length > 0) {
+                        logger.info(`Found ${validArrivals.length} arrivals for route ${routeNum} at ${result.stop.stpnm}`);
+                        routeArrivals.push({
+                          type: 'bus',
+                          route: routeNum,
+                          routeName: route.rtnm,
+                          stopName: result.stop.stpnm,
+                          direction,
+                          nextArrival: validArrivals[0].minutesAway || 0,
+                          arrivals: validArrivals.slice(0, 2).map(a => ({
+                            destination: a.destination,
+                            minutesAway: a.minutesAway,
+                            isApproaching: a.isApproaching
+                          }))
+                        });
+                        break; // Found arrivals for this route, move to next
                       }
                     }
                     if (routeArrivals.some(r => r.route === routeNum)) break;
@@ -487,39 +495,42 @@ export class CTAController {
               const directions = await CTALookupService.getBusDirections(routeNumber);
               const allStopsWithArrivals: any[] = [];
 
-              // Try each direction until we find 3 stops with arrivals
+              let checkedStops = 0;
+              // Try a bounded candidate set until we find 3 stops with arrivals
               for (const direction of directions) {
                 if (allStopsWithArrivals.length >= 3) break;
+                if (checkedStops >= MAX_ASSISTANT_STOP_LOOKUPS) break;
 
                 try {
                   const stops = await CTALookupService.getBusStops(routeNumber, direction);
+                  const remaining = MAX_ASSISTANT_STOP_LOOKUPS - checkedStops;
+                  const candidates = stops.slice(0, remaining);
+                  checkedStops += candidates.length;
 
-                  // Check stops in this direction
-                  for (const stop of stops) {
-                    if (allStopsWithArrivals.length >= 3) break;
+                  const results = await Promise.all(
+                    candidates.map((stop) =>
+                      CTAService.getBusPredictions(stop.stpid, routeNumber, 3)
+                        .then((arrivals) => ({ stop, arrivals }))
+                        .catch(() => null)
+                    )
+                  );
 
-                    try {
-                      const arrivals = await CTAService.getBusPredictions(stop.stpid, routeNumber, 3);
+                  for (const result of results) {
+                    if (!result || allStopsWithArrivals.length >= 3) continue;
+                    const validArrivals = result.arrivals.filter(a => a.minutesAway !== null || a.isApproaching);
 
-                      // Only include stops with actual arrivals that have valid times
-                      const validArrivals = arrivals.filter(a => a.minutesAway !== null || a.isApproaching);
-
-                      if (validArrivals.length > 0) {
-                        allStopsWithArrivals.push({
-                          stopName: stop.stpnm,
-                          stopId: stop.stpid,
-                          direction: direction,
-                          arrivals: validArrivals.map(a => ({
-                            destination: a.destination,
-                            minutesAway: a.minutesAway,
-                            isApproaching: a.isApproaching,
-                            isDelayed: a.isDelayed
-                          }))
-                        });
-                      }
-                    } catch (err) {
-                      // Skip stops with errors
-                      continue;
+                    if (validArrivals.length > 0) {
+                      allStopsWithArrivals.push({
+                        stopName: result.stop.stpnm,
+                        stopId: result.stop.stpid,
+                        direction: direction,
+                        arrivals: validArrivals.map(a => ({
+                          destination: a.destination,
+                          minutesAway: a.minutesAway,
+                          isApproaching: a.isApproaching,
+                          isDelayed: a.isDelayed
+                        }))
+                      });
                     }
                   }
                 } catch (err) {

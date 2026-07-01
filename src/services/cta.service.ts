@@ -226,20 +226,25 @@ export class CTAService {
       'bus',
       stopId,
       routeId || 'all',
-      direction || 'all',
-      limit.toString()
+      direction || 'all'
     );
 
     const cached = await CacheService.get<FormattedArrival[]>(cacheKey);
     if (cached) {
       logger.debug(`Bus predictions cache hit for ${stopId}`);
-      return cached.map((a) => ({ ...a, arrivalTime: new Date(a.arrivalTime) }));
+      return sortAndTrim(
+        cached.map((a) => ({ ...a, arrivalTime: new Date(a.arrivalTime) })),
+        limit
+      );
     }
 
     return withCoalescing(cacheKey, async () => {
       const fresh = await CacheService.get<FormattedArrival[]>(cacheKey);
       if (fresh) {
-        return fresh.map((a) => ({ ...a, arrivalTime: new Date(a.arrivalTime) }));
+        return sortAndTrim(
+          fresh.map((a) => ({ ...a, arrivalTime: new Date(a.arrivalTime) })),
+          limit
+        );
       }
 
       const params: Record<string, unknown> = {
@@ -258,7 +263,7 @@ export class CTAService {
       } catch (err) {
         logger.warn(`CTA bus request failed for ${stopId}; trying stale cache`, err);
         const stale = await readStale(cacheKey);
-        if (stale) return stale;
+        if (stale) return sortAndTrim(stale, limit);
         throw err;
       }
 
@@ -270,9 +275,8 @@ export class CTAService {
       //      we treat all messages as empty results — if the stop is truly
       //      broken it'll keep returning empty, which is the right UX anyway).
       if (body.error && !body.prd) {
-        const result: FormattedArrival[] = [];
-        await writeCache(cacheKey, result);
-        return result;
+        await writeCache(cacheKey, []);
+        return [];
       }
 
       let raw = body.prd || [];
@@ -303,9 +307,9 @@ export class CTAService {
         };
       });
 
-      const result = sortAndTrim(arrivals, limit);
+      const result = sortAndTrim(arrivals);
       await writeCache(cacheKey, result);
-      return result;
+      return sortAndTrim(result, limit);
     });
   }
 

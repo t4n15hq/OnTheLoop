@@ -185,8 +185,8 @@ export class TelegramController {
       return;
     }
 
-    const lines: string[] = ['<b>Your favorites</b>', ''];
-    for (const fav of favorites) {
+    const shown = favorites.slice(0, 5);
+    const summaries = await Promise.all(shown.map(async (fav) => {
       let summary = '<i>no upcoming</i>';
       try {
         let arrivals;
@@ -213,7 +213,16 @@ export class TelegramController {
       } catch (err) {
         logger.warn(`Failed arrivals for favorite ${fav.id}:`, err);
       }
-      lines.push(`<b>${escapeHtml(fav.name)}</b>\n${summary}`);
+      return `<b>${escapeHtml(fav.name)}</b>\n${summary}`;
+    }));
+
+    const lines: string[] = ['<b>Your favorites</b>', ''];
+    for (const summary of summaries) {
+      lines.push(summary);
+      lines.push('');
+    }
+    if (favorites.length > shown.length) {
+      lines.push(`<i>Showing ${shown.length} of ${favorites.length} favorites.</i>`);
       lines.push('');
     }
     // Trim trailing blank line

@@ -4,12 +4,11 @@ import { GeminiMapsService } from '../services/gemini-maps.service';
 import { CTAService } from '../services/cta.service';
 import { AISMSService } from '../services/ai-sms.service';
 import { AlertsService } from '../services/alerts.service';
+import * as assistant from '../services/assistant';
 import { AuthRequest } from '../middleware/auth.middleware';
 import logger from '../utils/logger';
 import prisma from '../utils/db';
 import { reportError } from '../utils/sentry';
-
-const MAX_ASSISTANT_STOP_LOOKUPS = 8;
 
 export class CTAController {
   /**
@@ -229,12 +228,10 @@ export class CTAController {
   }
 
   /**
-   * Get transit suggestions using natural language with real-time arrivals
-   * Example: "How do I get from Northwestern to downtown?"
-   * Example: "When is the next 157 bus?"
-   */
-  /**
-   * Get transit suggestions using natural language with real-time arrivals
+   * Get transit suggestions using natural language with real-time arrivals.
+   * Thin wrapper: intent parse, favorite match, the bounded live-arrivals
+   * fan-out (#14), Sentry reporting (#13), and answer formatting now live in the
+   * testable `services/assistant` modules. Runtime behavior is unchanged.
    * Example: "How do I get from Northwestern to downtown?"
    * Example: "When is the next 157 bus?"
    */
@@ -242,368 +239,22 @@ export class CTAController {
     try {
       const { query } = req.query;
       const userId = req.user?.userId;
-      // In a real app, we'd get userId from the auth token. 
-      // For now, we'll assume a default user or pass it in headers if available.
-      // Since we don't have auth middleware here yet, we'll try to match by name broadly 
-      // or skip the user-specific check if we can't identify them. 
-      // However, to fix the user's specific issue, let's assume we can search all favorites 
-      // or we need to pass the userId. 
-      // Let's look at how favorites are stored. They are tied to a user.
-      // We'll try to find a favorite that matches the query string loosely.
 
       if (!query || typeof query !== 'string' || query.trim().length === 0) {
         res.status(400).json({ error: 'Transit query is required' });
         return;
       }
+
       const startedAt = Date.now();
 
-      // 1. Check if the query matches a Favorite Name (e.g. "To Home from Gym")
-      // We need to import prisma to do this directly or add a method to FavoriteService.
-      // Since we can't easily change the service signature right now without more context,
-      // let's try to find a favorite via a direct DB call or a new service method if possible.
-      // But wait, we are in the controller. We can use FavoriteService if we had a method.
-      // Let's add a quick lookup logic here if we can, or rely on the parsed intent.
-
-      // Actually, let's use the parsed intent. If it's "route_arrivals", we can check if the query 
-      // matches a favorite name.
-
-      const parsed = await AISMSService.parseQuery(query);
-      let realTimeArrivals = null;
-      let conversationalResponse = null;
-
-      // 1. Check if the query matches one of the *signed-in user's* favorites
-      // (e.g. "when's my Home bus?"). Skip entirely for:
-      //   - anonymous callers (no userId)
-      //   - street-address queries like "1029 S Lytle to 820 S Wolcott" which
-      //     should always go to Maps-grounded routing, never a favorite match.
-      const looksLikeAddress = /\b\d{2,5}\s+[nsew]\b|\b(st|ave|avenue|blvd|road|rd|drive|dr|street)\b/i.test(query);
-
-      let matchingFavorite = null;
-      let bestScore = 0;
-
-      if (userId && !looksLikeAddress) {
-        const userFavorites = await prisma.favorite.findMany({ where: { userId } });
-        const stop = new Set(['the', 'and', 'for', 'how', 'get', 'can', 'what', 'when', 'where', 'next', 'bus', 'train', 'line']);
-        const qTokens = query
-          .toLowerCase()
-          .split(/\s+/)
-          .filter((t: string) => t.length > 2 && !stop.has(t) && !/^\d+$/.test(t));
-
-        if (qTokens.length > 0) {
-          for (const fav of userFavorites) {
-            const favTokens = fav.name
-              .toLowerCase()
-              .split(/\s+/)
-              .filter((t: string) => t.length > 2 && !stop.has(t));
-            if (favTokens.length === 0) continue;
-            let matches = 0;
-            for (const qt of qTokens) {
-              if (favTokens.some((ft: string) => ft === qt || ft.includes(qt) || qt.includes(ft))) {
-                matches++;
-              }
-            }
-            const score = matches / qTokens.length;
-            if (score > bestScore) {
-              bestScore = score;
-              matchingFavorite = fav;
-            }
-          }
-        }
-      }
-
-      if (matchingFavorite && bestScore >= 0.5) { // Higher threshold — avoid false positives
-        logger.info(`Found matching favorite: ${matchingFavorite.name} (Score: ${bestScore})`);
-
-        // Use the favorite's specific stop
-        const stopId = matchingFavorite.routeType === 'TRAIN'
-          ? (matchingFavorite.stationId || matchingFavorite.boardingStopId)
-          : (matchingFavorite.stopId || matchingFavorite.boardingStopId);
-
-        if (stopId) {
-          const arrivals = matchingFavorite.routeType === 'TRAIN'
-            ? await CTAService.getTrainArrivals(stopId, matchingFavorite.routeId, matchingFavorite.direction || undefined)
-            : await CTAService.getBusPredictions(stopId, matchingFavorite.routeId, 3, matchingFavorite.direction || undefined);
-
-          const validArrivals = arrivals.filter(a => a.minutesAway !== null || a.isApproaching);
-
-          if (validArrivals.length > 0) {
-            realTimeArrivals = {
-              route: matchingFavorite.routeId,
-              routeName: matchingFavorite.name,
-              stops: [{
-                stopName: matchingFavorite.boardingStopName || 'Your Stop',
-                stopId: stopId,
-                direction: matchingFavorite.direction || '',
-                arrivals: validArrivals.map(a => ({
-                  destination: a.destination,
-                  minutesAway: a.minutesAway,
-                  isApproaching: a.isApproaching,
-                  isDelayed: a.isDelayed
-                }))
-              }]
-            };
-
-            const nextBus = validArrivals[0];
-            const timeText = nextBus.isApproaching ? 'NOW' : `${nextBus.minutesAway} min`;
-            conversationalResponse = `🚌 ${matchingFavorite.name}\n`;
-            conversationalResponse += `📍 ${matchingFavorite.boardingStopName}\n`;
-            conversationalResponse += `⏱️ Next: ${timeText} → ${nextBus.destination}`;
-          }
-        }
-      }
-
-      if (!realTimeArrivals) {
-        // Fallback to existing logic
-        if (parsed.intent === 'transit_directions' && parsed.origin && parsed.destination) {
-          // ... (Existing transit directions logic) ...
-          // Copying existing logic for brevity, but in a real refactor we'd keep it.
-          // For this tool use, I must include the FULL content I'm replacing or it will be lost.
-          // Since I'm replacing the whole method, I need to put the original logic back in.
-
-          // ... [Rest of the original function logic] ...
-          // To avoid a massive block, I will just insert the favorite check at the top 
-          // and then fall through to the existing logic if no favorite is found.
-
-          // RE-INSERTING ORIGINAL LOGIC BELOW:
-          try {
-            // Get AI-powered directions
-            const directions = await GeminiMapsService.getTransitSuggestion(query);
-
-            // Extract ALL route numbers and train lines from the directions
-            // Look for bus routes with various patterns
-            const busPattern = /(?:route|bus|#|Route)\s*(\d+)/gi;
-            const busMatches = [...directions.matchAll(busPattern)];
-            let busRoutes = busMatches.map(m => m[1]).filter((v, i, a) => a.indexOf(v) === i);
-
-            // Also look for numbered patterns in markdown like "**157**" or "157 Streeterville"
-            const markdownPattern = /\*\*(?:Route\s*)?(\d+)/gi;
-            const markdownMatches = [...directions.matchAll(markdownPattern)];
-            busRoutes = [...new Set([...busRoutes, ...markdownMatches.map(m => m[1])])];
-
-            // Look for train lines: "Red Line", "Blue Line", "Pink Line", etc.
-            const trainPattern = /(Red|Blue|Brown|Green|Orange|Pink|Purple|Yellow)\s+Line/gi;
-            const trainMatches = [...directions.matchAll(trainPattern)];
-            const trainLines = trainMatches.map(m => m[1]).filter((v, i, a) => a.indexOf(v) === i);
-
-            logger.info(`Extracted routes - Buses: ${busRoutes.join(', ')}, Trains: ${trainLines.join(', ')}`);
-
-            // If no routes found, try to extract from query itself
-            if (busRoutes.length === 0 && trainLines.length === 0) {
-              const queryRouteMatch = query.match(/\b(\d{1,3})\b/);
-              if (queryRouteMatch) {
-                busRoutes.push(queryRouteMatch[1]);
-              }
-            }
-
-            // Fetch real-time arrivals for all mentioned routes (buses and trains)
-            const routeArrivals = [];
-
-            // Get bus arrivals
-            for (const routeNum of busRoutes.slice(0, 3)) {
-              try {
-                logger.info(`Fetching arrivals for bus route ${routeNum}`);
-                const routes = await CTALookupService.getBusRoutes();
-                const route = routes.find(r => r.rt === routeNum);
-
-                if (!route) {
-                  logger.warn(`Bus route ${routeNum} not found in CTA routes`);
-                  continue;
-                }
-
-                if (route) {
-                  const directions = await CTALookupService.getBusDirections(routeNum);
-                  for (const direction of directions) {
-                    const stops = await CTALookupService.getBusStops(routeNum, direction);
-
-                    const candidates = stops.slice(0, 5);
-                    const results = await Promise.all(
-                      candidates.map((stop) =>
-                        CTAService.getBusPredictions(stop.stpid, routeNum, 2)
-                          .then((arrivals) => ({ stop, arrivals }))
-                          .catch((err) => {
-                            logger.error(`Error fetching arrivals for stop ${stop.stpid}:`, err);
-                            return null;
-                          })
-                      )
-                    );
-
-                    for (const result of results) {
-                      if (!result) continue;
-                      const validArrivals = result.arrivals.filter(a => a.minutesAway !== null || a.isApproaching);
-
-                      if (validArrivals.length > 0) {
-                        logger.info(`Found ${validArrivals.length} arrivals for route ${routeNum} at ${result.stop.stpnm}`);
-                        routeArrivals.push({
-                          type: 'bus',
-                          route: routeNum,
-                          routeName: route.rtnm,
-                          stopName: result.stop.stpnm,
-                          direction,
-                          nextArrival: validArrivals[0].minutesAway || 0,
-                          arrivals: validArrivals.slice(0, 2).map(a => ({
-                            destination: a.destination,
-                            minutesAway: a.minutesAway,
-                            isApproaching: a.isApproaching
-                          }))
-                        });
-                        break; // Found arrivals for this route, move to next
-                      }
-                    }
-                    if (routeArrivals.some(r => r.route === routeNum)) break;
-                  }
-                }
-              } catch (err) {
-                reportError(err, {
-                  route: 'cta/transit-suggestion/bus-route',
-                  routeNumber: routeNum,
-                });
-                continue;
-              }
-            }
-
-            logger.info(`Total route arrivals found: ${routeArrivals.length}`);
-
-            // Sort routes by quickest arrival time (ascending)
-            routeArrivals.sort((a, b) => a.nextArrival - b.nextArrival);
-
-            // Always lead with the AI directions so the rider actually knows
-            // *how* to make the trip. Real-time arrivals get appended as a
-            // compact "Live on your route" footer when we have them.
-            conversationalResponse = directions.trim();
-
-            if (routeArrivals.length > 0) {
-              conversationalResponse += '\n\n⚡ Live right now:\n';
-              const top = routeArrivals.slice(0, 3);
-              for (const r of top) {
-                const next = r.arrivals[0];
-                const timeText = next.isApproaching ? 'NOW' : `${next.minutesAway} min`;
-                const icon = r.type === 'train' ? '🚊' : '🚌';
-                const label = r.type === 'train' ? `${r.route} Line` : `Route ${r.route}`;
-                conversationalResponse += `${icon} ${label} → ${timeText} @ ${r.stopName}\n`;
-              }
-            }
-
-            realTimeArrivals = routeArrivals.length > 0 ? { routes: routeArrivals } : null;
-
-          } catch (err) {
-            reportError(err, {
-              route: 'cta/transit-suggestion/directions',
-              userId,
-              queryLength: query.length,
-            });
-            conversationalResponse = await GeminiMapsService.getTransitSuggestion(query);
-          }
-        }
-        // Handle route arrivals query
-        else if (parsed.intent === 'route_arrivals' && parsed.routeNumber) {
-          try {
-            const routeNumber = parsed.routeNumber;
-
-            // Try to get all bus stops for this route to show arrivals
-            const routes = await CTALookupService.getBusRoutes();
-            const route = routes.find(r => r.rt === routeNumber);
-
-            if (route) {
-              // Get stops from all directions to maximize chances of finding active buses
-              const directions = await CTALookupService.getBusDirections(routeNumber);
-              const allStopsWithArrivals: any[] = [];
-
-              let checkedStops = 0;
-              // Try a bounded candidate set until we find 3 stops with arrivals
-              for (const direction of directions) {
-                if (allStopsWithArrivals.length >= 3) break;
-                if (checkedStops >= MAX_ASSISTANT_STOP_LOOKUPS) break;
-
-                try {
-                  const stops = await CTALookupService.getBusStops(routeNumber, direction);
-                  const remaining = MAX_ASSISTANT_STOP_LOOKUPS - checkedStops;
-                  const candidates = stops.slice(0, remaining);
-                  checkedStops += candidates.length;
-
-                  const results = await Promise.all(
-                    candidates.map((stop) =>
-                      CTAService.getBusPredictions(stop.stpid, routeNumber, 3)
-                        .then((arrivals) => ({ stop, arrivals }))
-                        .catch(() => null)
-                    )
-                  );
-
-                  for (const result of results) {
-                    if (!result || allStopsWithArrivals.length >= 3) continue;
-                    const validArrivals = result.arrivals.filter(a => a.minutesAway !== null || a.isApproaching);
-
-                    if (validArrivals.length > 0) {
-                      allStopsWithArrivals.push({
-                        stopName: result.stop.stpnm,
-                        stopId: result.stop.stpid,
-                        direction: direction,
-                        arrivals: validArrivals.map(a => ({
-                          destination: a.destination,
-                          minutesAway: a.minutesAway,
-                          isApproaching: a.isApproaching,
-                          isDelayed: a.isDelayed
-                        }))
-                      });
-                    }
-                  }
-                } catch (err) {
-                  continue;
-                }
-              }
-
-              if (allStopsWithArrivals.length > 0) {
-                realTimeArrivals = {
-                  route: routeNumber,
-                  routeName: route.rtnm,
-                  stops: allStopsWithArrivals
-                };
-
-                // Create short, scannable response
-                const closestStop = allStopsWithArrivals[0];
-                const nextBus = closestStop.arrivals[0];
-
-                const timeText = nextBus.isApproaching ? 'NOW' : `${nextBus.minutesAway} min`;
-
-                conversationalResponse = `🚌 Route ${routeNumber} ${closestStop.direction}\n`;
-                conversationalResponse += `📍 ${closestStop.stopName}\n`;
-                conversationalResponse += `⏱️  Next: ${timeText} → ${nextBus.destination}`;
-
-                if (nextBus.isDelayed) {
-                  conversationalResponse += ' ⚠️ DELAYED';
-                }
-
-                // Add following buses
-                if (closestStop.arrivals.length > 1) {
-                  const following = closestStop.arrivals.slice(1, 3).map((a: any) =>
-                    a.isApproaching ? 'NOW' : `${a.minutesAway} min`
-                  );
-                  conversationalResponse += `\n    Following: ${following.join(', ')}`;
-                }
-              } else {
-                // No arrivals found - likely no service at this time
-                conversationalResponse = `🚌 Route ${routeNumber} - ${route.rtnm}\n\n`;
-                conversationalResponse += `No buses are currently running on this route.\n\n`;
-                conversationalResponse += `This could be because:\n`;
-                conversationalResponse += `• It's outside service hours (buses typically run 5 AM - 1 AM)\n`;
-                conversationalResponse += `• The route doesn't operate on this day\n`;
-                conversationalResponse += `• There's a service disruption\n\n`;
-                conversationalResponse += `Try again during service hours or check transitchicago.com for the route schedule.`;
-              }
-            }
-          } catch (err) {
-            reportError(err, {
-              route: 'cta/transit-suggestion/route-arrivals',
-              routeNumber: parsed.routeNumber,
-              userId,
-            });
-          }
-        }
-      }
+      // All of the logic (intent parse, favorite match, bounded live-arrivals
+      // fan-out, and answer formatting) lives in the assistant modules now.
+      const result = await assistant.answer({ query, userId });
 
       res.status(200).json({
-        query,
-        answer: conversationalResponse || await GeminiMapsService.getTransitSuggestion(query),
-        realTimeArrivals
+        query: result.query,
+        answer: result.answer,
+        realTimeArrivals: result.realTimeArrivals,
       });
       logger.info(`Gemini transit suggestion completed in ${Date.now() - startedAt}ms`);
     } catch (error: any) {

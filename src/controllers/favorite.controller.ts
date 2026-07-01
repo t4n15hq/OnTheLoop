@@ -145,6 +145,19 @@ export class FavoriteController {
       const { favoriteId, time, daysOfWeek, leadMinutes, channel } = req.body;
       const userId = req.user!.userId;
 
+      // Channel readiness: refuse to schedule a delivery the user can't receive.
+      // Telegram needs a linked chat; email just needs an address on file for
+      // now (the emailVerifiedAt gate is deferred to #16).
+      const user = await prisma.user.findUnique({ where: { id: userId } });
+      if (channel === Channel.TELEGRAM && !user?.telegramChatId) {
+        res.status(400).json({ error: 'Link Telegram before scheduling Telegram alerts.' });
+        return;
+      }
+      if (channel === Channel.EMAIL && !user?.email) {
+        res.status(400).json({ error: 'Add an email before scheduling email alerts.' });
+        return;
+      }
+
       const schedule = await FavoriteService.createSchedule({
         userId,
         favoriteId,
@@ -159,7 +172,6 @@ export class FavoriteController {
       // we only do it when the user didn't pick an explicit channel themselves.
       let emailAutoEnabled = false;
       if (!channel || channel === Channel.AUTO) {
-        const user = await prisma.user.findUnique({ where: { id: userId } });
         if (user && !user.telegramChatId && !user.emailNotifications) {
           await prisma.user.update({
             where: { id: userId },
@@ -280,7 +292,22 @@ export class FavoriteController {
 export const createFavoriteValidation = [
   body('routeType').isIn(['TRAIN', 'BUS']).withMessage('Invalid route type'),
   body('routeId').notEmpty().withMessage('Route ID is required'),
-  body('name').notEmpty().withMessage('Name is required'),
+  body('name')
+    .trim()
+    .notEmpty()
+    .withMessage('Name is required')
+    .isLength({ max: 80 })
+    .withMessage('Name must be 80 characters or fewer'),
+  // Cross-field rules: a bus favorite needs a stop, a train favorite a station.
+  body('stopId')
+    .if(body('routeType').equals('BUS'))
+    .notEmpty()
+    .withMessage('Bus favorites require a stopId'),
+  body('stationId')
+    .if(body('routeType').equals('TRAIN'))
+    .notEmpty()
+    .withMessage('Train favorites require a stationId'),
+  body('direction').optional().trim(),
 ];
 
 export const createScheduleValidation = [

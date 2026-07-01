@@ -3,6 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { AuthService } from '../services/auth.service';
 import { AuthRequest } from '../middleware/auth.middleware';
 import config from '../config';
+import logger from '../utils/logger';
 import { reportError } from '../utils/sentry';
 
 export class AuthController {

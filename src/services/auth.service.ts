@@ -1,4 +1,8 @@
-import bcrypt from 'bcryptjs';
+// Native (Rust/napi) bcrypt — runs hashing on a background thread instead of
+// blocking the event loop like the pure-JS bcryptjs did. Prebuilt binaries
+// (incl. linux-musl for the Alpine image), so no node-gyp build step. Produces
+// and verifies standard $2b$ hashes, so existing bcryptjs hashes stay valid.
+import { hash as bcryptHash, verify as bcryptVerify } from '@node-rs/bcrypt';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import config from '../config';
@@ -66,12 +70,11 @@ function publicUser(user: {
 
 export class AuthService {
   static async hashPassword(password: string): Promise<string> {
-    const salt = await bcrypt.genSalt(10);
-    return bcrypt.hash(password, salt);
+    return bcryptHash(password, 10);
   }
 
-  static async comparePassword(password: string, hash: string): Promise<boolean> {
-    return bcrypt.compare(password, hash);
+  static async comparePassword(password: string, hashed: string): Promise<boolean> {
+    return bcryptVerify(password, hashed);
   }
 
   static generateToken(payload: TokenPayload): string {

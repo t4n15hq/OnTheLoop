@@ -9,6 +9,23 @@ import EmailService from '../services/email.service';
 import { Channel } from '@prisma/client';
 import config from '../config';
 import { reportError } from '../utils/sentry';
+import { hasWalkGeometry } from '../utils/walk-time';
+
+/**
+ * "Leave now" phrasing for walk-time-aware pings (#38). Fires at
+ * arrival − leadMinutes − walkMinutes, so the rider has `leadMinutes` of runway
+ * before they must walk out the door.
+ */
+function buildLeaveMessage(
+  leadMinutes: number,
+  favorite: { routeType: string; routeId: string; boardingStopName: string | null; name: string }
+): string {
+  const route =
+    favorite.routeType === 'TRAIN' ? `${favorite.routeId} Line` : `${favorite.routeId} bus`;
+  const stop = favorite.boardingStopName || favorite.name;
+  const when = leadMinutes > 0 ? `Leave in ${leadMinutes} min` : 'Leave now';
+  return `${when} to catch the ${route} at ${stop}.`;
+}
 
 const NOTIFICATION_QUEUE_NAME = 'notifications';
 
@@ -174,7 +191,13 @@ async function processNotification(jobData: NotificationJobData) {
     }
 
     let arrivals;
-    const title = favorite.name;
+    // Walk-time-aware pings (#38): when the schedule carries a start location,
+    // lead the message with the "leave now" action. Otherwise fall back to the
+    // favorite's name exactly as before (backward compatible).
+    const title =
+      schedule && hasWalkGeometry(schedule)
+        ? buildLeaveMessage(schedule.leadMinutes, favorite)
+        : favorite.name;
     if (favorite.routeType === 'TRAIN') {
       if (!favorite.stationId) {
         logger.error(`Train favorite ${favoriteId} missing stationId`);

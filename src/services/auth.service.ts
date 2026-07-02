@@ -160,6 +160,18 @@ export class AuthService {
   }
 
   /**
+   * Pause all scheduled notifications until the given instant (reuses the
+   * existing `notificationsPausedUntil` field). Powers the Telegram
+   * "Mute today" quick action.
+   */
+  static async pauseNotificationsUntil(userId: string, until: Date) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { notificationsPausedUntil: until },
+    });
+  }
+
+  /**
    * Change the password for a logged-in user. Requires the current password
    * to be re-entered (defence against session hijack / drive-by CSRF) and
    * stamps passwordChangedAt so existing tokens are invalidated.

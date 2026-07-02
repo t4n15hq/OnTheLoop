@@ -1,9 +1,14 @@
 import { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
-import { TelegramService, escapeHtml } from '../services/telegram.service';
+import {
+  TelegramService,
+  escapeHtml,
+  parseCallbackData,
+} from '../services/telegram.service';
 import { AISMSService } from '../services/ai-sms.service';
 import { FavoriteService } from '../services/favorite.service';
 import { CTAService } from '../services/cta.service';
+import { enqueueSnoozeNotification } from '../jobs/notification.job';
 import config from '../config';
 import logger from '../utils/logger';
 
@@ -15,10 +20,46 @@ interface TelegramMessage {
   from?: TelegramUser;
   text?: string;
 }
+interface TelegramCallbackQuery {
+  id: string;
+  from?: TelegramUser;
+  message?: TelegramMessage;
+  data?: string;
+}
 interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
   edited_message?: TelegramMessage;
+  callback_query?: TelegramCallbackQuery;
+}
+
+/**
+ * End of the current day in the given IANA timezone, as a UTC instant.
+ * Used to mute notifications "for today" via the existing
+ * notificationsPausedUntil field. DST transitions at midnight are ignored
+ * (offset is taken at `now`), which is fine for a same-day mute.
+ */
+function endOfLocalDay(now: Date, timeZone: string): Date {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const map: Record<string, string> = {};
+  for (const p of dtf.formatToParts(now)) map[p.type] = p.value;
+  // Local wall-clock reinterpreted as if it were UTC, minus real UTC = offset.
+  const asUtc = Date.UTC(
+    +map.year, +map.month - 1, +map.day,
+    +map.hour, +map.minute, +map.second
+  );
+  const offsetMs = asUtc - now.getTime();
+  const local = new Date(now.getTime() + offsetMs);
+  const endLocalMs = Date.UTC(
+    local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(),
+    23, 59, 59, 999
+  );
+  return new Date(endLocalMs - offsetMs);
 }
 
 // HTML-formatted. Send with parseMode: 'HTML'.
@@ -56,6 +97,12 @@ export class TelegramController {
       res.status(200).json({ ok: true });
 
       const update: TelegramUpdate = req.body;
+
+      if (update.callback_query) {
+        await TelegramController.handleCallback(update.callback_query);
+        return;
+      }
+
       const message = update.message || update.edited_message;
       if (!message || !message.text) return;
 
@@ -135,6 +182,109 @@ export class TelegramController {
         await TelegramService.sendMessage(chatId, 'Something went wrong on my end. Try again in a moment.');
       } catch {}
     }
+  }
+
+  /**
+   * Handle a callback_query — a tap on one of the inline action buttons we
+   * attach to scheduled pings ("Snooze 5m", "Mute today", "Next one instead").
+   */
+  private static async handleCallback(cq: TelegramCallbackQuery): Promise<void> {
+    // Clear the button spinner right away; ack failure must not block the work.
+    await TelegramService.answerCallbackQuery(cq.id);
+
+    const chat = cq.message?.chat;
+    if (!chat) return; // Message too old for Telegram to include — nothing to reply to.
+    const chatId = String(chat.id);
+
+    const parsed = cq.data ? parseCallbackData(cq.data) : null;
+    if (!parsed) return;
+
+    try {
+      const user = await AuthService.getUserByTelegramChatId(chatId);
+      if (!user) {
+        await TelegramService.sendMessage(
+          chatId,
+          'This chat isn\'t linked to an account. Re-link from the web app to use these actions.'
+        );
+        return;
+      }
+
+      switch (parsed.action) {
+        case 'mute': {
+          const until = endOfLocalDay(new Date(), config.scheduleTimezone);
+          await AuthService.pauseNotificationsUntil(user.id, until);
+          await TelegramService.sendMessage(
+            chatId,
+            'Muted for the rest of today. Alerts resume tomorrow.'
+          );
+          return;
+        }
+        case 'snooze': {
+          await enqueueSnoozeNotification({
+            userId: user.id,
+            favoriteId: parsed.favoriteId,
+            scheduleId: parsed.scheduleId,
+          });
+          await TelegramService.sendMessage(
+            chatId,
+            'Snoozed — I\'ll ping you again in 5 minutes.'
+          );
+          return;
+        }
+        case 'next': {
+          await TelegramController.sendNextArrival(chatId, user.id, parsed.favoriteId);
+          return;
+        }
+      }
+    } catch (error) {
+      logger.error(`Telegram handleCallback error for chat ${chatId}:`, error);
+      try {
+        await TelegramService.sendMessage(chatId, 'Couldn\'t do that just now. Try again in a moment.');
+      } catch {}
+    }
+  }
+
+  /** Reply with the arrival(s) after the soonest one — powers "Next one instead". */
+  private static async sendNextArrival(
+    chatId: string,
+    userId: string,
+    favoriteId: string
+  ): Promise<void> {
+    const favorite = await FavoriteService.getFavoriteById(favoriteId, userId);
+    if (!favorite) {
+      await TelegramService.sendMessage(chatId, 'That favorite is no longer available.');
+      return;
+    }
+
+    let arrivals;
+    if (favorite.routeType === 'TRAIN' && favorite.stationId) {
+      arrivals = await CTAService.getTrainArrivals(
+        favorite.stationId,
+        favorite.routeId,
+        favorite.direction || undefined
+      );
+    } else if (favorite.routeType === 'BUS' && favorite.stopId) {
+      arrivals = await CTAService.getBusPredictions(
+        favorite.stopId,
+        favorite.routeId,
+        3,
+        favorite.direction || undefined
+      );
+    }
+
+    // Drop the soonest arrival — the user already saw that in the ping.
+    const following = (arrivals || []).slice(1);
+    if (following.length === 0) {
+      await TelegramService.sendMessage(
+        chatId,
+        `<b>${escapeHtml(favorite.name)}</b>\n\nNo later arrivals right now.`,
+        HTML
+      );
+      return;
+    }
+
+    const body = CTAService.formatArrivalsForSMS(following, `After this — ${favorite.name}`);
+    await TelegramService.sendMessage(chatId, body, HTML);
   }
 
   private static async handleStart(chatId: string, text: string): Promise<void> {

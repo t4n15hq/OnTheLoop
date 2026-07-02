@@ -4,7 +4,7 @@ import logger from '../utils/logger';
 import prisma from '../utils/db';
 import { FavoriteService } from '../services/favorite.service';
 import { CTAService } from '../services/cta.service';
-import { TelegramService } from '../services/telegram.service';
+import { TelegramService, buildPingKeyboard } from '../services/telegram.service';
 import EmailService from '../services/email.service';
 import { Channel } from '@prisma/client';
 import config from '../config';
@@ -201,7 +201,12 @@ async function processNotification(jobData: NotificationJobData) {
     if (shouldSendTelegram) {
       try {
         const body = CTAService.formatArrivalsForSMS(arrivals, title);
-        await TelegramService.sendMessage(user.telegramChatId!, body, { parseMode: 'HTML' });
+        // Attach quick-action buttons (snooze / mute today / next one) so users
+        // can act on the ping without opening the app. See TelegramController.
+        await TelegramService.sendMessage(user.telegramChatId!, body, {
+          parseMode: 'HTML',
+          replyMarkup: buildPingKeyboard(favorite.id, scheduleId),
+        });
         logger.info(`Telegram notification sent for favorite ${favoriteId}`);
         await recordLog({ userId, scheduleId, channel: 'TELEGRAM', status: 'SENT', kind });
       } catch (err: any) {
@@ -354,6 +359,38 @@ export async function scheduleNotifications() {
   } catch (error) {
     reportError(error, { job: 'schedule-notifications' });
   }
+}
+
+/** How long a "Snooze 5m" button defers a re-delivery. */
+export const SNOOZE_DELAY_MS = 5 * 60 * 1000;
+
+/**
+ * Re-deliver a ping after {@link SNOOZE_DELAY_MS} — powers the "Snooze 5m"
+ * inline button. A one-off delayed job that reuses the normal notification
+ * path (so it still respects mute/quiet-hours at fire time). Not deduped by a
+ * window jobId: an explicit snooze is always its own fresh delivery.
+ */
+export async function enqueueSnoozeNotification(params: {
+  userId: string;
+  favoriteId: string;
+  scheduleId?: string;
+}) {
+  await notificationQueue.add(
+    'send-notification',
+    {
+      userId: params.userId,
+      favoriteId: params.favoriteId,
+      scheduleId: params.scheduleId,
+      kind: 'SCHEDULED',
+    } satisfies NotificationJobData,
+    {
+      delay: SNOOZE_DELAY_MS,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 2000 },
+      removeOnComplete: { count: 100 },
+      removeOnFail: { count: 500 },
+    }
+  );
 }
 
 /** Enqueue a one-off test delivery for the given schedule. */

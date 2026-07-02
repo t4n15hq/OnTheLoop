@@ -5,6 +5,7 @@ import { Sentry, sentryEnabled } from './utils/sentry';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import path from 'path';
 import config from './config';
 import { validateConfig } from './config/validate';
@@ -63,6 +64,9 @@ app.use(cors({
     (!origin || allowedOrigins.includes(origin)) ? cb(null, true) : cb(new Error('Not allowed by CORS')),
   credentials: false,
 }));
+// gzip API JSON + static assets. The route-list/stop-list payloads and app.js
+// are chunky for mobile riders on transit; compression is a cheap 5-10x win.
+app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

@@ -3,6 +3,7 @@ import config from '../config';
 import logger from '../utils/logger';
 import { CTALookupService } from './cta-lookup.service';
 import { GeminiMapsService } from './gemini-maps.service';
+import { guardedGemini, geminiCacheKey } from './gemini-guard';
 
 interface ParsedSMSQuery {
   intent: 'route_arrivals' | 'find_stops' | 'transit_directions' | 'favorites' | 'unknown';
@@ -12,6 +13,24 @@ interface ParsedSMSQuery {
   origin?: string;
   destination?: string;
 }
+
+// Deterministic outputs for GEMINI_MOCK=1 so these entry points are fully
+// mockable (and counted) without touching the network.
+function mockParseQuery(query: string): ParsedSMSQuery {
+  const m = query.match(/from\s+(.+?)\s+to\s+(.+?)(?:[?.!]|$)/i);
+  if (m) {
+    return { intent: 'transit_directions', origin: m[1].trim(), destination: m[2].trim() };
+  }
+  return { intent: 'unknown' };
+}
+
+const MOCK_ROUTE_CONFIG = {
+  routeType: 'BUS',
+  routeId: '22',
+  direction: 'Northbound',
+  stopName: 'Clark & Belmont',
+  alightingName: 'Clark & Lake',
+};
 
 // Per-Gemini-call timeouts. Prevents any single slow upstream from hanging
 // the chat endpoint indefinitely. Budgets picked so total request time
@@ -48,9 +67,25 @@ export class AISMSService {
   private static genAI = new GoogleGenerativeAI(config.google.geminiApiKey);
 
   /**
-   * Parse natural language route configuration for "Magic Fill"
+   * Parse natural language route configuration for "Magic Fill".
+   * Guarded (cache + coalesce + concurrency cap + mock counter). Counts as one
+   * logical Gemini operation even though it fans out to several sub-calls.
    */
   static async parseRouteConfig(query: string): Promise<any> {
+    try {
+      return await guardedGemini<any>({
+        cacheKey: geminiCacheKey('parse-route-config', query),
+        timeoutMs: 60_000, // generous backstop; sub-calls are individually bounded
+        mock: () => ({ ...MOCK_ROUTE_CONFIG }),
+        run: () => this.parseRouteConfigReal(query),
+      });
+    } catch (error) {
+      logger.error('Error parsing route config:', error);
+      return null;
+    }
+  }
+
+  private static async parseRouteConfigReal(query: string): Promise<any> {
     try {
       logger.info(`Parsing route config (queryLength=${query.length})`);
 
@@ -142,12 +177,14 @@ BE CONSERVATIVE: If you're unsure whether something is an address, assume it's a
         logger.info('Resolving address-to-address route config');
 
         // Resolve Origin
-        const originLoc = await GeminiMapsService.resolveLocation(analysis.originAddress);
+        // Raw resolve: this method already holds one guard slot, so use the
+        // uncapped raw path to avoid nesting the concurrency semaphore.
+        const originLoc = await GeminiMapsService.resolveLocationRaw(analysis.originAddress);
         if (originLoc) {
           // Resolve Destination (needed for direction inference)
           let destLoc = null;
           if (analysis.destinationAddress) {
-            destLoc = await GeminiMapsService.resolveLocation(analysis.destinationAddress);
+            destLoc = await GeminiMapsService.resolveLocationRaw(analysis.destinationAddress);
             if (destLoc) {
               config.alightingName = destLoc.address;
             }
@@ -349,13 +386,30 @@ BE CONSERVATIVE: If you're unsure whether something is an address, assume it's a
   }
 
   /**
-   * Parse natural language SMS query to determine intent and extract parameters
+   * Parse natural language SMS query to determine intent and extract parameters.
+   * Guarded (cache + coalesce + concurrency cap + mock counter). Never throws —
+   * any failure (including saturation / timeout) degrades to `unknown` intent so
+   * the assistant falls through to its own graceful handling.
    */
   static async parseQuery(query: string): Promise<ParsedSMSQuery> {
     try {
-      logger.info(`Parsing SMS query (queryLength=${query.length})`);
+      return await guardedGemini<ParsedSMSQuery>({
+        cacheKey: geminiCacheKey('parse-query', query),
+        timeoutMs: PARSE_QUERY_TIMEOUT_MS,
+        mock: () => mockParseQuery(query),
+        run: () => this.parseQueryReal(query),
+      });
+    } catch (error) {
+      // Saturation / timeout / breaker → unknown intent (not cached).
+      logger.warn(`parseQuery failed: ${(error as Error).message}`);
+      return { intent: 'unknown' };
+    }
+  }
 
-      const model = this.genAI.getGenerativeModel({
+  private static async parseQueryReal(query: string): Promise<ParsedSMSQuery> {
+    logger.info(`Parsing SMS query (queryLength=${query.length})`);
+
+    const model = this.genAI.getGenerativeModel({
         model: 'gemini-flash-latest',
         safetySettings: [
           {
@@ -426,11 +480,5 @@ Examples:
         origin: parsed.origin,
         destination: parsed.destination,
       };
-    } catch (error) {
-      // Timeouts return unknown intent so the controller can fall through to
-      // the ungrounded suggestion path instead of hanging.
-      logger.warn(`parseQuery failed: ${(error as Error).message}`);
-      return { intent: 'unknown' };
-    }
   }
 }

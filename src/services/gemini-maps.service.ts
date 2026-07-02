@@ -1,6 +1,12 @@
 import { GoogleGenAI, Tool } from '@google/genai';
 import config from '../config';
 import logger from '../utils/logger';
+import {
+  guardedGemini,
+  geminiCacheKey,
+  GeminiSaturatedError,
+  GeminiUnavailableError,
+} from './gemini-guard';
 
 export interface LocationResult {
   name: string;
@@ -61,22 +67,39 @@ function cleanEndpoint(raw: string): string {
   return raw.replace(ENDPOINT_MODIFIER_RE, '').trim().replace(/^['"]|['"]$/g, '');
 }
 
+// Deterministic outputs for GEMINI_MOCK=1. Every Gemini entry point returns one
+// of these (via the guard) so tests + the load test never touch the network.
+const MOCK_LOCATION: LocationResult = {
+  name: 'Mock Chicago Location',
+  address: '1 N State St, Chicago, IL',
+  coordinates: { lat: 41.882, lon: -87.6278 },
+};
+const MOCK_SUGGESTION =
+  'Walk to the nearest CTA stop.\nTake Route 22 Northbound.\nGet off near your destination.';
+
 export class GeminiMapsService {
   private static ai = new GoogleGenAI({ apiKey: config.google.geminiApiKey });
 
   /**
-   * Resolve a natural language location query to coordinates via Gemini + Google Maps grounding.
+   * Resolve a natural language location query to coordinates via Gemini + Google
+   * Maps grounding. Guarded (cache + coalesce + concurrency cap + mock counter).
    * Examples: "Willis Tower", "123 N Main St Chicago", "coffee shop near Northwestern".
    */
   static async resolveLocation(query: string): Promise<LocationResult | null> {
-    if (process.env.GEMINI_MOCK === '1') {
-      return {
-        name: 'Mock Chicago Location',
-        address: '1 N State St, Chicago, IL',
-        coordinates: { lat: 41.882, lon: -87.6278 },
-      };
-    }
+    return guardedGemini<LocationResult | null>({
+      cacheKey: geminiCacheKey('resolve-location', query),
+      timeoutMs: LOCATION_TIMEOUT_MS + 2_000,
+      mock: () => ({ ...MOCK_LOCATION }),
+      run: () => this.resolveLocationRaw(query),
+    });
+  }
 
+  /**
+   * Raw Maps-grounded resolve with NO cache/coalesce/concurrency cap. Used by the
+   * composite flows (getTransitSuggestion, parseRouteConfig) which already hold a
+   * guard slot, so they must not nest the semaphore under themselves.
+   */
+  static async resolveLocationRaw(query: string): Promise<LocationResult | null> {
     logger.info(`Resolving location via Maps grounding (queryLength=${query.length})`);
 
     const prompt =
@@ -179,10 +202,31 @@ export class GeminiMapsService {
    * Example: "How do I get from Northwestern to Willis Tower on the CTA?"
    */
   static async getTransitSuggestion(query: string): Promise<string> {
-    if (process.env.GEMINI_MOCK === '1') {
-      return 'Walk to the nearest CTA stop.\nTake Route 22 Northbound.\nGet off near your destination.';
+    try {
+      return await guardedGemini<string>({
+        cacheKey: geminiCacheKey('transit-suggestion', query),
+        // Generous backstop: the composite fans out to endpoint resolves +
+        // primary + fallback, each already individually bounded below.
+        timeoutMs: LOCATION_TIMEOUT_MS + SUGGESTION_TIMEOUT_MS + FALLBACK_TIMEOUT_MS + 5_000,
+        mock: () => MOCK_SUGGESTION,
+        run: () => this.getTransitSuggestionReal(query),
+      });
+    } catch (err) {
+      if (err instanceof GeminiSaturatedError || err instanceof GeminiUnavailableError) {
+        logger.warn(`Transit suggestion shed load: ${(err as Error).message}`);
+        return 'The assistant is busy right now. Try a specific route like "next 22", or check transitchicago.com.';
+      }
+      logger.error('Transit suggestion failed:', err);
+      return "I couldn't generate directions right now. Try rephrasing, or check transitchicago.com.";
     }
+  }
 
+  /**
+   * Real grounded transit suggestion. Throws when it cannot produce any text, so
+   * the guard neither caches a failure nor marks a false success; the public
+   * wrapper turns the throw into a graceful, uncached message.
+   */
+  private static async getTransitSuggestionReal(query: string): Promise<string> {
     logger.info(`Transit suggestion requested (queryLength=${query.length})`);
 
     // For trip-planning questions we resolve the endpoints (when present) to
@@ -244,11 +288,12 @@ export class GeminiMapsService {
       );
       const text = retry.text ?? '';
       if (text.trim()) return text;
-      return "I couldn't generate directions right now. Try rephrasing, or check transitchicago.com.";
     } catch (err) {
       logger.error('Plain transit suggestion also failed:', err);
-      return "I couldn't generate directions right now. Try rephrasing, or check transitchicago.com.";
     }
+    // Both attempts produced nothing — throw so the guard doesn't cache a
+    // failure; the public wrapper returns a graceful, uncached message.
+    throw new Error('transit suggestion produced no text');
   }
 
   /**
@@ -268,10 +313,11 @@ export class GeminiMapsService {
     if (!origin || !destination) return null;
 
     // allSettled — don't let one slow/failed resolve sink the other. If either
-    // comes back null, treat it as a miss and skip the context block.
+    // comes back null, treat it as a miss and skip the context block. Uses the
+    // RAW resolve so it runs inside this call's guard slot (no nested semaphore).
     const [oRes, dRes] = await Promise.allSettled([
-      this.resolveLocation(origin),
-      this.resolveLocation(destination),
+      this.resolveLocationRaw(origin),
+      this.resolveLocationRaw(destination),
     ]);
 
     const oVal = oRes.status === 'fulfilled' ? oRes.value : null;

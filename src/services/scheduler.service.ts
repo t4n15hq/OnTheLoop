@@ -1,4 +1,5 @@
 import { scheduleNotifications } from '../jobs/notification.job';
+import { scanAccessibilityAlerts } from '../jobs/accessibility.job';
 import logger from '../utils/logger';
 
 let schedulerTimeout: NodeJS.Timeout | null = null;
@@ -32,6 +33,9 @@ export function startScheduler() {
       running = true;
       try {
         await scheduleNotifications();
+        // Opt-in elevator/escalator outage alerts. Self-throttled: the feed is
+        // cached (~2min) and pushes are deduped, so a per-minute tick is safe.
+        await scanAccessibilityAlerts();
       } catch (err) {
         logger.error('Scheduler tick failed:', err);
       } finally {

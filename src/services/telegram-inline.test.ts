@@ -8,7 +8,11 @@ import {
   buildInlineResults,
   describeArrivals,
   formatInlineBoard,
+  lineLabel,
+  servingLines,
+  diversifyByLine,
   type InlineDeps,
+  type InlineArrival,
 } from './telegram-inline';
 
 // Keep the module graph light: these are only referenced by defaultInlineDeps,
@@ -101,5 +105,73 @@ describe('inline formatting helpers', () => {
     expect(board).toContain('<b>Belmont</b>');
     expect(board).toContain('1. Red Line to Howard — 4 min');
     expect(formatInlineBoard('Empty', [])).toContain('No arrivals right now.');
+  });
+
+  it('formatInlineBoard shows the serving lines in the header when given', () => {
+    const board = formatInlineBoard('Belmont', [
+      { routeName: 'Red Line', destination: 'Howard', minutesAway: 4, isApproaching: false },
+    ], ['Red', 'Brown', 'Purple']);
+    expect(board).toContain('<b>Belmont</b> — Red, Brown, Purple');
+  });
+});
+
+describe('multi-line handling (Belmont fix)', () => {
+  it('lineLabel maps CTA codes to friendly names', () => {
+    expect(lineLabel('Brn Line')).toBe('Brown');
+    expect(lineLabel('P Line')).toBe('Purple');
+    expect(lineLabel('Red Line')).toBe('Red');
+    expect(lineLabel(undefined)).toBe('');
+  });
+
+  const MIXED: InlineArrival[] = [
+    { routeName: 'Brn Line', destination: 'Kimball', minutesAway: 2, isApproaching: false },
+    { routeName: 'Brn Line', destination: 'Loop', minutesAway: 4, isApproaching: false },
+    { routeName: 'Red Line', destination: 'Howard', minutesAway: 5, isApproaching: false },
+    { routeName: 'Brn Line', destination: 'Kimball', minutesAway: 8, isApproaching: false },
+    { routeName: 'P Line', destination: 'Linden', minutesAway: 9, isApproaching: false },
+  ];
+
+  it('diversifyByLine surfaces each line before any line repeats', () => {
+    const ordered = diversifyByLine(MIXED);
+    // First three are the soonest of each distinct line (Brown, Red, Purple),
+    // not the three numerically-soonest (which were all Brown).
+    expect(ordered.slice(0, 3).map((a) => a.routeName)).toEqual(['Brn Line', 'Red Line', 'P Line']);
+  });
+
+  it('servingLines lists the distinct lines soonest-first', () => {
+    expect(servingLines(MIXED)).toEqual(['Brown', 'Red', 'Purple']);
+  });
+
+  it('a multi-line station board shows every serving line, not just the soonest one', async () => {
+    const deps = makeDeps({
+      getTrainStations: vi.fn().mockResolvedValue([{ map_id: '41320', station_name: 'Belmont' }]),
+      getTrainArrivals: vi.fn().mockResolvedValue(MIXED),
+    });
+    const [result] = await buildInlineResults('Belmont', deps);
+    const board = result.input_message_content.message_text;
+    expect(board).toContain('Brn Line');
+    expect(board).toContain('Red Line');
+    expect(board).toContain('P Line'); // all three lines present despite Brown dominating by time
+    expect(result.description).toMatch(/^Brown, Red, Purple ·/); // lines prefixed for disambiguation
+  });
+
+  it('distinguishes same-named stations by their serving lines', async () => {
+    const deps = makeDeps({
+      getTrainStations: vi.fn().mockResolvedValue([
+        { map_id: '41320', station_name: 'Belmont' },
+        { map_id: '40060', station_name: 'Belmont' },
+      ]),
+      getTrainArrivals: vi.fn().mockImplementation((mapId: string) =>
+        Promise.resolve(
+          mapId === '41320'
+            ? [{ routeName: 'Red Line', destination: 'Howard', minutesAway: 3, isApproaching: false }]
+            : [{ routeName: 'Blue Line', destination: "O'Hare", minutesAway: 6, isApproaching: false }]
+        )
+      ),
+    });
+    const results = await buildInlineResults('Belmont', deps);
+    expect(results).toHaveLength(2);
+    expect(results[0].description).toMatch(/^Red ·/);
+    expect(results[1].description).toMatch(/^Blue ·/);
   });
 });

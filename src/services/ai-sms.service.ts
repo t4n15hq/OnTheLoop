@@ -1,10 +1,8 @@
-import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, SchemaType } from '@google/generative-ai';
+import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory } from '@google/generative-ai';
 import config from '../config';
 import logger from '../utils/logger';
-import { CTAService } from './cta.service';
 import { CTALookupService } from './cta-lookup.service';
 import { GeminiMapsService } from './gemini-maps.service';
-import { FavoriteService } from './favorite.service';
 
 interface ParsedSMSQuery {
   intent: 'route_arrivals' | 'find_stops' | 'transit_directions' | 'favorites' | 'unknown';
@@ -19,7 +17,6 @@ interface ParsedSMSQuery {
 // the chat endpoint indefinitely. Budgets picked so total request time
 // stays under ~35s on the slowest path.
 const PARSE_QUERY_TIMEOUT_MS = 6_000;
-const DIRECTIONS_TIMEOUT_MS = 20_000;
 const PARSE_CONFIG_TIMEOUT_MS = 12_000;
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -39,7 +36,13 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 }
 
 /**
- * AI-powered SMS query handler using Gemini
+ * Gemini-backed AI parse layer for transit queries.
+ *
+ * The natural-language orchestration (intent → match → enrich → format) now
+ * lives in the shared `services/assistant` pipeline (#49). This class is the
+ * reduced parse shim that pipeline — and the web "Magic Fill" endpoint — call
+ * into: `parseQuery` classifies intent + slots for the assistant, and
+ * `parseRouteConfig` resolves a full route config for the web app.
  */
 export class AISMSService {
   private static genAI = new GoogleGenerativeAI(config.google.geminiApiKey);
@@ -429,303 +432,5 @@ Examples:
       logger.warn(`parseQuery failed: ${(error as Error).message}`);
       return { intent: 'unknown' };
     }
-  }
-
-  /**
-   * Handle route arrivals query
-   * Example: "157" or "When is the next Blue Line train?"
-   */
-  static async handleRouteArrivals(
-    userId: string,
-    routeNumber: string
-  ): Promise<string> {
-    try {
-      // Find matching favorite
-      const favorites = await FavoriteService.getUserFavorites(userId);
-      const matchingFavorite = favorites.find(
-        (fav) => fav.routeId.toLowerCase() === routeNumber.toLowerCase()
-      );
-
-      if (!matchingFavorite) {
-        return `Route ${routeNumber} not found in your favorites. Add it via the app first, or text "help" for assistance.`;
-      }
-
-      // Fetch arrivals
-      let arrivals;
-      if (matchingFavorite.routeType === 'TRAIN') {
-        if (!matchingFavorite.stationId) {
-          return 'Station not configured for this favorite.';
-        }
-        arrivals = await CTAService.getTrainArrivals(
-          matchingFavorite.stationId,
-          matchingFavorite.routeId
-        );
-      } else {
-        if (!matchingFavorite.stopId) {
-          return 'Stop not configured for this favorite.';
-        }
-        arrivals = await CTAService.getBusPredictions(
-          matchingFavorite.stopId,
-          matchingFavorite.routeId,
-          3
-        );
-      }
-
-      return this.formatArrivalsForSMS(arrivals, matchingFavorite.name);
-    } catch (error) {
-      logger.error('Error handling route arrivals:', error);
-      return 'Sorry, could not fetch arrival times. Please try again.';
-    }
-  }
-
-  /**
-   * Handle find stops query
-   * Example: "Find Route 60 stops near Lytle Street"
-   */
-  static async handleFindStops(
-    routeNumber: string,
-    location: string
-  ): Promise<string> {
-    try {
-      // Get directions for the route
-      const directions = await CTALookupService.getBusDirections(routeNumber);
-      if (directions.length === 0) {
-        return `Route ${routeNumber} not found.`;
-      }
-
-      // For simplicity, use the first direction
-      const direction = directions[0];
-
-      // Resolve location and find nearby stops
-      const result = await GeminiMapsService.findStopsNearLocation(
-        location,
-        routeNumber,
-        direction,
-        0.5
-      );
-
-      if (!result || result.stops.length === 0) {
-        return `No Route ${routeNumber} stops found near "${location}".`;
-      }
-
-      // Format response
-      let message = `Route ${routeNumber} ${direction}\n`;
-      message += `Near: ${result.location.name}\n\n`;
-
-      const topStops = result.stops.slice(0, 3);
-      topStops.forEach((stop, index) => {
-        message += `${index + 1}. ${stop.stpnm}\n`;
-        message += `   ${stop.distance.toFixed(2)} mi away\n`;
-      });
-
-      message += `\nText route number for arrivals or reply SAVE to add favorite.`;
-
-      return message;
-    } catch (error) {
-      logger.error('Error handling find stops:', error);
-      return 'Sorry, could not find stops. Please try again.';
-    }
-  }
-
-  /**
-   * Handle transit directions query
-   * Example: "How do I get to Willis Tower from Northwestern?"
-   *
-   * Uses Gemini's structured-output mode with a responseSchema so the model
-   * returns { steps, estTimeMinutes } JSON instead of prose we'd have to
-   * regex-clean. Formatting to user-facing text happens in code.
-   */
-  static async handleTransitDirections(
-    origin: string,
-    destination: string
-  ): Promise<string> {
-    try {
-      const model = this.genAI.getGenerativeModel({
-        model: 'gemini-flash-latest',
-        safetySettings: [
-          { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-          { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-          { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-          { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-        ],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: SchemaType.OBJECT,
-            properties: {
-              steps: {
-                type: SchemaType.ARRAY,
-                description: 'Ordered transit steps, each a short imperative sentence. Include specific CTA route numbers or line colors when relevant.',
-                items: { type: SchemaType.STRING },
-              },
-              estTimeMinutes: {
-                type: SchemaType.INTEGER,
-                description: 'Estimated total travel time in minutes.',
-              },
-            },
-            required: ['steps', 'estTimeMinutes'],
-          },
-        },
-      });
-
-      const prompt = `Give CTA transit directions from "${origin}" to "${destination}". Return up to 5 concise steps and an estimated total time in minutes.`;
-
-      const result = await withTimeout(
-        model.generateContent(prompt),
-        DIRECTIONS_TIMEOUT_MS,
-        'handleTransitDirections'
-      );
-      const raw = result.response.text();
-
-      let parsed: { steps?: unknown; estTimeMinutes?: unknown };
-      try {
-        parsed = JSON.parse(raw);
-      } catch (err) {
-        logger.warn(`Gemini directions JSON parse failed: ${raw}`);
-        return `Sorry, I couldn't find transit directions from ${origin} to ${destination}. Please try rephrasing or check a map.`;
-      }
-
-      const steps = Array.isArray(parsed.steps)
-        ? parsed.steps.filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
-        : [];
-      const estMinutes =
-        typeof parsed.estTimeMinutes === 'number' && Number.isFinite(parsed.estTimeMinutes)
-          ? Math.max(0, Math.round(parsed.estTimeMinutes))
-          : null;
-
-      if (steps.length === 0) {
-        return `Sorry, I couldn't find transit directions from ${origin} to ${destination}. Please try rephrasing or check a map.`;
-      }
-
-      const lines = steps.slice(0, 5).map((s, i) => `${i + 1}. ${s}`);
-      if (estMinutes !== null) lines.push(`Est time: ${estMinutes} mins`);
-
-      let out = lines.join('\n');
-      if (out.length > 500) out = out.substring(0, 497) + '...';
-      return out;
-    } catch (error) {
-      logger.error('Error handling transit directions:', error);
-      return 'Sorry, could not get directions. Please try again.';
-    }
-  }
-
-  /**
-   * Handle favorites query
-   */
-  static async handleFavorites(userId: string): Promise<string> {
-    try {
-      const favorites = await FavoriteService.getUserFavorites(userId);
-
-      if (favorites.length === 0) {
-        return 'You have no favorites saved. Add some via the app!';
-      }
-
-      let message = 'Your Favorites:\n\n';
-
-      for (const favorite of favorites.slice(0, 3)) {
-        let arrivals;
-
-        if (favorite.routeType === 'TRAIN' && favorite.stationId) {
-          arrivals = await CTAService.getTrainArrivals(
-            favorite.stationId,
-            favorite.routeId
-          );
-        } else if (favorite.routeType === 'BUS' && favorite.stopId) {
-          arrivals = await CTAService.getBusPredictions(
-            favorite.stopId,
-            favorite.routeId,
-            2
-          );
-        }
-
-        message += `${favorite.routeId}: `;
-
-        if (arrivals && arrivals.length > 0) {
-          const times = arrivals
-            .slice(0, 2)
-            .map((a) => `${a.minutesAway}min`)
-            .join(', ');
-          message += times;
-        } else {
-          message += 'No arrivals';
-        }
-
-        message += '\n';
-      }
-
-      message += '\nText route number for details.';
-
-      return message;
-    } catch (error) {
-      logger.error('Error handling favorites:', error);
-      return 'Sorry, could not fetch favorites. Please try again.';
-    }
-  }
-
-  /**
-   * Process natural language SMS query
-   */
-  static async processQuery(userId: string, query: string): Promise<string> {
-    try {
-      // Parse the query
-      const parsed = await this.parseQuery(query);
-
-      logger.info(`Parsed intent: ${parsed.intent}`, {
-        hasRouteNumber: Boolean(parsed.routeNumber),
-        hasLocation: Boolean(parsed.location),
-        hasOrigin: Boolean(parsed.origin),
-        hasDestination: Boolean(parsed.destination),
-      });
-
-      // Handle based on intent
-      switch (parsed.intent) {
-        case 'route_arrivals':
-          if (!parsed.routeNumber) {
-            return 'Please specify a route number (e.g., "157" or "Blue Line").';
-          }
-          return await this.handleRouteArrivals(userId, parsed.routeNumber);
-
-        case 'find_stops':
-          if (!parsed.routeNumber || !parsed.location) {
-            return 'Please specify both a route number and location.';
-          }
-          return await this.handleFindStops(parsed.routeNumber, parsed.location);
-
-        case 'transit_directions':
-          if (!parsed.origin || !parsed.destination) {
-            return 'Please specify both origin and destination.';
-          }
-          return await this.handleTransitDirections(parsed.origin, parsed.destination);
-
-        case 'favorites':
-          return await this.handleFavorites(userId);
-
-        default:
-          return 'I didn\'t understand that. Try:\n- Route number (e.g., "157")\n- "Find stops near [location]"\n- "How do I get to [place]?"\n- "favorites"';
-      }
-    } catch (error) {
-      logger.error('Error processing SMS query:', error);
-      return 'Sorry, something went wrong. Please try again.';
-    }
-  }
-
-  /**
-   * Format arrivals for SMS (compact format)
-   */
-  private static formatArrivalsForSMS(arrivals: any[], title: string): string {
-    if (arrivals.length === 0) {
-      return `${title}\n\nNo arrivals right now.`;
-    }
-
-    const lines: string[] = [title, ''];
-    arrivals.slice(0, 3).forEach((arrival, index) => {
-      const flags: string[] = [];
-      if (arrival.isApproaching) flags.push('arriving now');
-      if (arrival.isDelayed) flags.push('delayed');
-      const tail = flags.length ? ` (${flags.join(', ')})` : '';
-      lines.push(`${index + 1}. ${arrival.destination} — ${arrival.minutesAway} min${tail}`);
-    });
-
-    return lines.join('\n');
   }
 }

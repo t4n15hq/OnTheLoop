@@ -17,12 +17,27 @@ export function escapeHtml(s: string): string {
 // compact: a single-char action tag, `|`-joined with any ids it needs. cuids
 // are 25 chars, so `s|<favoriteId>|<scheduleId>` stays well under the limit.
 // `|` never appears in a cuid, making the split unambiguous.
-export const TG_ACTION = { SNOOZE: 's', MUTE: 'm', NEXT: 'n' } as const;
+// Scheduled-ping actions use single-char tags; the assistant answer actions
+// (#50 — Save this route / Set an alert / Refresh) use two-char tags so they
+// never collide, and carry a short lookup token instead of the route payload
+// (a resolved route + stop + direction won't fit the 64-byte cap — see the
+// action-context store below).
+export const TG_ACTION = {
+  SNOOZE: 's',
+  MUTE: 'm',
+  NEXT: 'n',
+  SAVE: 'sv',
+  ALERT: 'al',
+  REFRESH: 'rf',
+} as const;
 
 export type TelegramCallbackAction =
   | { action: 'mute' }
   | { action: 'snooze'; favoriteId: string; scheduleId?: string }
-  | { action: 'next'; favoriteId: string };
+  | { action: 'next'; favoriteId: string }
+  | { action: 'save'; token: string }
+  | { action: 'alert'; token: string }
+  | { action: 'refresh'; token: string };
 
 /** Inline keyboard attached to each scheduled arrival ping. */
 export function buildPingKeyboard(favoriteId: string, scheduleId?: string) {
@@ -39,19 +54,90 @@ export function buildPingKeyboard(favoriteId: string, scheduleId?: string) {
 
 /** Decode callback_data from a button tap. Returns null for anything unknown. */
 export function parseCallbackData(data: string): TelegramCallbackAction | null {
-  const [action, favoriteId, scheduleId] = data.split('|');
+  const [action, arg, scheduleId] = data.split('|');
   switch (action) {
     case TG_ACTION.MUTE:
       return { action: 'mute' };
     case TG_ACTION.SNOOZE:
-      return favoriteId
-        ? { action: 'snooze', favoriteId, scheduleId: scheduleId || undefined }
+      return arg
+        ? { action: 'snooze', favoriteId: arg, scheduleId: scheduleId || undefined }
         : null;
     case TG_ACTION.NEXT:
-      return favoriteId ? { action: 'next', favoriteId } : null;
+      return arg ? { action: 'next', favoriteId: arg } : null;
+    case TG_ACTION.SAVE:
+      return arg ? { action: 'save', token: arg } : null;
+    case TG_ACTION.ALERT:
+      return arg ? { action: 'alert', token: arg } : null;
+    case TG_ACTION.REFRESH:
+      return arg ? { action: 'refresh', token: arg } : null;
     default:
       return null;
   }
+}
+
+// --- Assistant answer action context (#50) ---------------------------------
+// The Save / Alert / Refresh buttons need the resolved route + stop + the
+// original query (to re-run on Refresh). That won't fit callback_data's 64-byte
+// cap, so we stash it here keyed by a short token and only send the token. A
+// miss (process restart or TTL expiry) makes the button no-op gracefully — the
+// caller just tells the user to ask again.
+export interface AnswerActionContext {
+  /** Original NL query, replayed by Refresh. */
+  query: string;
+  routeType: 'BUS' | 'TRAIN';
+  routeId: string;
+  routeName: string;
+  stopId: string;
+  stopName: string;
+  direction: string;
+}
+
+const ACTION_CTX_TTL_MS = 60 * 60 * 1000; // 1h — answers go stale fast anyway.
+const ACTION_CTX_MAX = 1000;
+const actionContexts = new Map<string, { ctx: AnswerActionContext; expiresAt: number }>();
+let ctxSeq = 0;
+
+/** Stash an action context and return its lookup token. */
+export function putActionContext(ctx: AnswerActionContext): string {
+  const now = Date.now();
+  if (actionContexts.size >= ACTION_CTX_MAX) {
+    for (const [k, v] of actionContexts) {
+      if (v.expiresAt <= now) actionContexts.delete(k);
+    }
+    // Still full of live entries → evict oldest (Map preserves insertion order).
+    while (actionContexts.size >= ACTION_CTX_MAX) {
+      const oldest = actionContexts.keys().next().value;
+      if (oldest === undefined) break;
+      actionContexts.delete(oldest);
+    }
+  }
+  const token = (now.toString(36) + (ctxSeq++).toString(36) + Math.random().toString(36).slice(2, 6)).slice(-12);
+  actionContexts.set(token, { ctx, expiresAt: now + ACTION_CTX_TTL_MS });
+  return token;
+}
+
+/** Resolve a token to its context, or null if unknown / expired. */
+export function getActionContext(token: string): AnswerActionContext | null {
+  const entry = actionContexts.get(token);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    actionContexts.delete(token);
+    return null;
+  }
+  return entry.ctx;
+}
+
+/** Inline keyboard attached to an assistant answer that resolved to a route. */
+export function buildAnswerKeyboard(token: string) {
+  return {
+    inline_keyboard: [
+      [
+        { text: 'Save this route', callback_data: `${TG_ACTION.SAVE}|${token}` },
+        { text: 'Set an alert', callback_data: `${TG_ACTION.ALERT}|${token}` },
+        { text: 'Refresh', callback_data: `${TG_ACTION.REFRESH}|${token}` },
+      ],
+    ],
+  };
 }
 
 /**
@@ -129,6 +215,44 @@ class TelegramServiceImpl {
         logger.error(`Telegram sendMessage retry failed for chat ${chatId}:`, detail);
         throw retryErr;
       }
+    }
+  }
+
+  /**
+   * Edit an existing message's text (and optionally its inline keyboard) in
+   * place. Powers the "Refresh" action (#50) — the same message updates with
+   * fresh arrivals instead of spamming a new reply. Best-effort: Telegram
+   * returns a benign 400 ("message is not modified") when the text is
+   * unchanged, so failures are logged, not thrown.
+   */
+  async editMessageText(
+    chatId: string | number,
+    messageId: number,
+    text: string,
+    opts: {
+      parseMode?: 'Markdown' | 'MarkdownV2' | 'HTML';
+      disablePreview?: boolean;
+      replyMarkup?: unknown;
+    } = {}
+  ): Promise<void> {
+    const client = this.getClient();
+    if (!client) {
+      logger.warn('Telegram bot token not configured; skipping editMessageText');
+      return;
+    }
+
+    try {
+      await client.post('/editMessageText', {
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        parse_mode: opts.parseMode,
+        disable_web_page_preview: opts.disablePreview ?? true,
+        reply_markup: opts.replyMarkup,
+      });
+    } catch (error: any) {
+      const detail = error?.response?.data || error?.message || error;
+      logger.warn(`Telegram editMessageText failed for chat ${chatId}:`, detail);
     }
   }
 

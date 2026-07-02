@@ -4,13 +4,22 @@ import {
   TelegramService,
   escapeHtml,
   parseCallbackData,
+  buildAnswerKeyboard,
+  putActionContext,
+  getActionContext,
+  type AnswerActionContext,
 } from '../services/telegram.service';
-import { AISMSService } from '../services/ai-sms.service';
+import * as assistant from '../services/assistant';
 import { FavoriteService } from '../services/favorite.service';
 import { CTAService } from '../services/cta.service';
 import { enqueueSnoozeNotification } from '../jobs/notification.job';
 import config from '../config';
 import logger from '../utils/logger';
+import type { RouteType } from '@prisma/client';
+
+// CTA train lines are identified by color; everything else the assistant
+// resolves on the route-arrivals path is a bus. Used to tag a saved favorite.
+const TRAIN_LINES = new Set(['Red', 'Blue', 'Brown', 'Green', 'Orange', 'Pink', 'Purple', 'Yellow']);
 
 interface TelegramChat { id: number; }
 interface TelegramUser { id: number; first_name?: string; username?: string; }
@@ -166,16 +175,27 @@ export class TelegramController {
         return;
       }
 
-      // Fall through to AI for natural-language queries.
+      // Fall through to the shared assistant pipeline for natural-language
+      // queries (#49). Intent parse, favorite match, the bounded live-arrivals
+      // fan-out, and answer formatting all live in `services/assistant` now —
+      // the exact same pipeline the web app uses — so the bot and web return
+      // identical answers for the same query.
       if (!config.google.geminiApiKey) {
         await TelegramService.sendMessage(chatId, HELP_TEXT, HTML);
         return;
       }
 
-      // AI responses are free-form prose — send as plain text so stray
-      // angle brackets or ampersands don't break HTML parse mode.
-      const reply = await AISMSService.processQuery(user.id, text);
-      await TelegramService.sendMessage(chatId, reply);
+      // Assistant answers are free-form (may embed AI directions prose) — send
+      // as plain text so stray angle brackets or ampersands don't break HTML
+      // parse mode. When the answer resolved to a concrete route/stop, attach
+      // the Save / Alert / Refresh action buttons (#50).
+      const result = await assistant.answer({ query: text, userId: user.id });
+      const replyMarkup = TelegramController.buildAnswerActions(text, result);
+      await TelegramService.sendMessage(
+        chatId,
+        result.answer,
+        replyMarkup ? { replyMarkup } : {}
+      );
     } catch (error) {
       logger.error(`Telegram handleMessage error for chat ${chatId}:`, error);
       try {
@@ -235,12 +255,139 @@ export class TelegramController {
           await TelegramController.sendNextArrival(chatId, user.id, parsed.favoriteId);
           return;
         }
+        case 'save': {
+          const ctx = getActionContext(parsed.token);
+          if (!ctx) {
+            await TelegramService.sendMessage(
+              chatId,
+              'That answer has expired. Ask me again and tap Save this route.'
+            );
+            return;
+          }
+          const favorite = await TelegramController.saveFavoriteFromContext(user.id, ctx);
+          await TelegramService.sendMessage(
+            chatId,
+            `Saved <b>${escapeHtml(favorite.name)}</b> to your favorites. Send /favorites to see it.`,
+            HTML
+          );
+          return;
+        }
+        case 'alert': {
+          const ctx = getActionContext(parsed.token);
+          if (!ctx) {
+            await TelegramService.sendMessage(
+              chatId,
+              'That answer has expired. Ask me again and tap Set an alert.'
+            );
+            return;
+          }
+          // Schedules need a target time + days a chat message can't collect
+          // cleanly, so deep-link to the web app to finish setting the alert.
+          const link = config.publicUrl.replace(/\/$/, '');
+          await TelegramService.sendMessage(
+            chatId,
+            `To set an alert for <b>${escapeHtml(ctx.routeName)}</b>, open the web app and add a schedule to this route:\n${link}`,
+            HTML
+          );
+          return;
+        }
+        case 'refresh': {
+          const ctx = getActionContext(parsed.token);
+          if (!ctx) {
+            await TelegramService.sendMessage(
+              chatId,
+              'That answer has expired. Ask me again for fresh arrivals.'
+            );
+            return;
+          }
+          await TelegramController.refreshAnswer(chatId, cq.message?.message_id, user.id, ctx);
+          return;
+        }
       }
     } catch (error) {
       logger.error(`Telegram handleCallback error for chat ${chatId}:`, error);
       try {
         await TelegramService.sendMessage(chatId, 'Couldn\'t do that just now. Try again in a moment.');
       } catch {}
+    }
+  }
+
+  /**
+   * If an assistant answer resolved to a concrete route/stop (route-arrivals or
+   * a matching favorite — a {@link RouteRealTimeArrivals} payload), stash the
+   * resolved context and return the Save / Alert / Refresh inline keyboard
+   * (#50). Returns undefined for directions or answers with no live route, so
+   * those replies stay button-free.
+   */
+  private static buildAnswerActions(
+    query: string,
+    result: assistant.AssistantResult
+  ): ReturnType<typeof buildAnswerKeyboard> | undefined {
+    const rt = result.realTimeArrivals;
+    // RouteRealTimeArrivals has `stops`; DirectionsRealTimeArrivals has `routes`.
+    if (!rt || !('stops' in rt) || rt.stops.length === 0) return undefined;
+
+    const stop = rt.stops[0];
+    if (!stop.stopId) return undefined;
+
+    const token = putActionContext({
+      query,
+      routeType: TRAIN_LINES.has(rt.route) ? 'TRAIN' : 'BUS',
+      routeId: rt.route,
+      routeName: rt.routeName,
+      stopId: stop.stopId,
+      stopName: stop.stopName,
+      direction: stop.direction || '',
+    });
+    return buildAnswerKeyboard(token);
+  }
+
+  /** Create a Favorite from a resolved answer context (Save this route, #50). */
+  private static async saveFavoriteFromContext(
+    userId: string,
+    ctx: AnswerActionContext
+  ) {
+    const routeType = ctx.routeType as RouteType;
+    return FavoriteService.createFavorite({
+      userId,
+      routeType,
+      routeId: ctx.routeId,
+      direction: ctx.direction || undefined,
+      // Train boarding points key off stationId, buses off stopId. Set both the
+      // type-specific id and the generic boarding fields the arrival lookups use.
+      stationId: routeType === 'TRAIN' ? ctx.stopId : undefined,
+      stopId: routeType === 'BUS' ? ctx.stopId : undefined,
+      boardingStopId: ctx.stopId,
+      boardingStopName: ctx.stopName || undefined,
+      name: ctx.routeName || `Route ${ctx.routeId}`,
+    });
+  }
+
+  /** Re-run the stored query and edit the original message with fresh arrivals (Refresh, #50). */
+  private static async refreshAnswer(
+    chatId: string,
+    messageId: number | undefined,
+    userId: string,
+    ctx: AnswerActionContext
+  ): Promise<void> {
+    const result = await assistant.answer({ query: ctx.query, userId });
+    const replyMarkup = TelegramController.buildAnswerActions(ctx.query, result);
+
+    // Edit in place when we still have the message; otherwise fall back to a
+    // fresh reply (e.g. the original is too old for Telegram to reference).
+    if (messageId !== undefined) {
+      await TelegramService.editMessageText(
+        chatId,
+        messageId,
+        result.answer,
+        replyMarkup ? { replyMarkup } : {}
+      );
+    } else {
+      await TelegramService.sendMessage(
+        chatId,
+        result.answer,
+        replyMarkup ? { replyMarkup } : {}
+      );
     }
   }
 

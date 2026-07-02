@@ -59,6 +59,56 @@ export const defaultInlineDeps: InlineDeps = {
     CTAService.getTrainArrivals(stationId) as Promise<InlineArrival[]>,
 };
 
+/** CTA route codes → friendly line names for display. */
+const LINE_LABELS: Record<string, string> = {
+  Red: 'Red', Blue: 'Blue', Brn: 'Brown', G: 'Green',
+  Org: 'Orange', P: 'Purple', Pink: 'Pink', Y: 'Yellow',
+};
+
+/** "Brn Line" → "Brown"; unknown codes pass through unchanged. */
+export function lineLabel(routeName?: string): string {
+  if (!routeName) return '';
+  const code = routeName.replace(/\s*Line$/i, '').trim();
+  return LINE_LABELS[code] ?? code;
+}
+
+/** Distinct serving lines present in the arrivals, in soonest-first order. */
+export function servingLines(arrivals: InlineArrival[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const a of arrivals) {
+    const label = lineLabel(a.routeName);
+    if (label && !seen.has(label)) {
+      seen.add(label);
+      out.push(label);
+    }
+  }
+  return out;
+}
+
+/**
+ * Reorder soonest-first arrivals so every distinct line's next train appears
+ * before any line's second train. A multi-line station (e.g. Belmont =
+ * Red/Brown/Purple) then always surfaces each line instead of, say, four Brown
+ * trains that happened to be the numerically-soonest. Order within the two
+ * groups is preserved, so it stays soonest-first inside each.
+ */
+export function diversifyByLine(arrivals: InlineArrival[]): InlineArrival[] {
+  const seen = new Set<string>();
+  const firstPerLine: InlineArrival[] = [];
+  const rest: InlineArrival[] = [];
+  for (const a of arrivals) {
+    const key = a.routeName ?? '';
+    if (!seen.has(key)) {
+      seen.add(key);
+      firstPerLine.push(a);
+    } else {
+      rest.push(a);
+    }
+  }
+  return [...firstPerLine, ...rest];
+}
+
 function arrivalMinutesLabel(a: InlineArrival): string {
   if (a.isApproaching) return 'Due';
   if (a.minutesAway === null) return '—';
@@ -74,8 +124,14 @@ export function describeArrivals(arrivals: InlineArrival[]): string {
 }
 
 /** The HTML board sent into the chat when a result is tapped. */
-export function formatInlineBoard(stationName: string, arrivals: InlineArrival[]): string {
-  const header = `<b>${escapeHtml(stationName)}</b>`;
+export function formatInlineBoard(
+  stationName: string,
+  arrivals: InlineArrival[],
+  servingLineNames: string[] = []
+): string {
+  const header = servingLineNames.length
+    ? `<b>${escapeHtml(stationName)}</b> — ${escapeHtml(servingLineNames.join(', '))}`
+    : `<b>${escapeHtml(stationName)}</b>`;
   if (arrivals.length === 0) {
     return `${header}\n\nNo arrivals right now.`;
   }
@@ -121,13 +177,20 @@ export async function buildInlineResults(
       } catch {
         arrivals = [];
       }
+      // Surface each serving line, not just the numerically-soonest few (a
+      // multi-line station like Belmont was showing only one line). The line
+      // list also disambiguates same-named stations (e.g. Belmont Red/Brown/
+      // Purple vs. Belmont on the Blue line) in the inline picker.
+      const ordered = diversifyByLine(arrivals);
+      const lines = servingLines(ordered);
+      const linePrefix = lines.length ? `${lines.join(', ')} · ` : '';
       return {
         type: 'article' as const,
         id: `stn-${s.map_id}`,
         title: s.station_name,
-        description: describeArrivals(arrivals),
+        description: linePrefix + describeArrivals(ordered),
         input_message_content: {
-          message_text: formatInlineBoard(s.station_name, arrivals),
+          message_text: formatInlineBoard(s.station_name, ordered, lines),
           parse_mode: 'HTML' as const,
           disable_web_page_preview: true as const,
         },

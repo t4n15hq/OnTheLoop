@@ -4,6 +4,7 @@ import logger from '../utils/logger';
 import prisma from '../utils/db';
 import { FavoriteService } from '../services/favorite.service';
 import { CTAService } from '../services/cta.service';
+import { recordArrivalObservations } from '../services/reliability.service';
 import { TelegramService, buildPingKeyboard } from '../services/telegram.service';
 import EmailService from '../services/email.service';
 import { Channel } from '@prisma/client';
@@ -219,6 +220,20 @@ async function processNotification(jobData: NotificationJobData) {
         3,
         favorite.direction || undefined
       );
+    }
+
+    // #39 Phase 1: piggyback per-stop reliability capture on the fetch we just
+    // did for this SAVED stop. No new upstream call. recordArrivalObservations
+    // swallows its own errors, so this never blocks or breaks delivery.
+    const observedStopId =
+      favorite.routeType === 'TRAIN' ? favorite.stationId : favorite.stopId;
+    if (observedStopId) {
+      await recordArrivalObservations({
+        stopId: observedStopId,
+        routeId: favorite.routeId,
+        direction: favorite.direction,
+        arrivals,
+      });
     }
 
     if (shouldSendTelegram) {

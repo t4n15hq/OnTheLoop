@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import http from 'http';
 import logger from './utils/logger';
 import { createNotificationWorker } from './jobs/notification.job';
+import { createReliabilityWorker, scheduleReliabilityRollup } from './jobs/reliability.job';
 
 // Load environment variables
 dotenv.config();
@@ -11,6 +12,12 @@ logger.info('Starting notification worker...');
 
 // Create and start the worker
 const worker = createNotificationWorker();
+
+// #39 Phase 1: nightly per-stop reliability rollup + retention.
+const reliabilityWorker = createReliabilityWorker();
+scheduleReliabilityRollup().catch((err) =>
+  logger.error('Failed to schedule reliability rollup:', err)
+);
 const startedAt = Date.now();
 const healthPort = parseInt(process.env.WORKER_HEALTH_PORT || process.env.PORT || '3001', 10);
 const healthServer = http.createServer((req, res) => {
@@ -34,6 +41,7 @@ logger.info('Notification worker started and ready to process jobs');
 async function shutdown(signal: string) {
   logger.info(`${signal} received, closing worker gracefully`);
   await worker.close();
+  await reliabilityWorker.close();
   healthServer.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 10_000).unref();
 }

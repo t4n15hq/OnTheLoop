@@ -11,6 +11,11 @@ import { validateConfig } from './config/validate';
 import logger from './utils/logger';
 import { startScheduler, stopScheduler } from './services/scheduler.service';
 import { createNotificationWorker, notificationQueue } from './jobs/notification.job';
+import {
+  createReliabilityWorker,
+  reliabilityQueue,
+  scheduleReliabilityRollup,
+} from './jobs/reliability.job';
 import { apiLimiter } from './middleware/rate-limit.middleware';
 import prisma from './utils/db';
 import redis, { cacheRedis } from './utils/redis';
@@ -108,6 +113,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // Start server
 const PORT = config.port;
 let notificationWorker: ReturnType<typeof createNotificationWorker> | null = null;
+let reliabilityWorker: ReturnType<typeof createReliabilityWorker> | null = null;
 
 const server = app.listen(PORT, () => {
   logger.info(`CTA Track API server started on port ${PORT}`);
@@ -123,6 +129,11 @@ const server = app.listen(PORT, () => {
   // worker container (e.g. `npm run worker`) to avoid double-processing.
   if (config.runWorkerInProcess) {
     notificationWorker = createNotificationWorker();
+    // #39 Phase 1: nightly per-stop reliability rollup + retention.
+    reliabilityWorker = createReliabilityWorker();
+    scheduleReliabilityRollup().catch((err) =>
+      logger.error('Failed to schedule reliability rollup:', err)
+    );
     logger.info('Notification worker running in-process');
   } else {
     logger.info('RUN_WORKER_IN_PROCESS=false — expecting a separate worker process');
@@ -138,7 +149,9 @@ async function shutdown(signal: string) {
 
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await notificationWorker?.close();
+  await reliabilityWorker?.close();
   await notificationQueue.close();
+  await reliabilityQueue.close();
   await prisma.$disconnect();
   await Promise.allSettled([redis.quit(), cacheRedis.quit()]);
   clearTimeout(hardExit);

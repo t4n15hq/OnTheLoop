@@ -129,6 +129,56 @@ enum Channel {
   BOTH
 }
 
+// #39 Phase 1 — per-stop reliability history (data capture only, no UI yet).
+// Append-only snapshot of the live predictions we ALREADY fetch for a SAVED
+// stop when a notification fires. No new upstream CTA traffic — we just persist
+// what we already had in hand. A nightly BullMQ job folds these into
+// ReliabilityBucket and prunes raw rows older than ~30 days, so this stays
+// "raw + nightly rollup", not a timeseries DB.
+model ArrivalObservation {
+  id           String   @id @default(cuid())
+  // CTA stop id (bus) or station id (train) — identifies the boarding point.
+  stopId       String
+  routeId      String   // e.g. "Blue", "Red", "22"
+  direction    String?  // favorite.direction; null when the favorite has none
+  // minutesAway at capture. Nullable because a prediction can be missing.
+  predictedMin Int?
+  // The only delta directly derivable from a single live snapshot. A true
+  // actual-vs-predicted delta needs cross-referencing snapshots over time —
+  // that's Phase 2, deliberately deferred.
+  delayed      Boolean  @default(false)
+  observedAt   DateTime @default(now())
+  // Set once the nightly rollup has folded this row into a bucket, so a later
+  // run never double-counts it (retention prune is separate, by observedAt).
+  rolledUp     Boolean  @default(false)
+
+  // Rollup scans un-rolled rows; retention prune / grouping walk by observedAt.
+  @@index([rolledUp])
+  @@index([stopId, routeId, observedAt])
+  @@map("arrival_observations")
+}
+
+// Nightly aggregate of ArrivalObservation, grouped by
+// (stop, route, direction, hour-of-week 0–167 in the schedule timezone).
+// Additive: each rollup INCREMENTS the running totals, so aggregate history
+// survives even after the raw rows behind it are pruned. avgPredictedMin is
+// derived at read time as sumPredictedMin / predictedSampleCount (Phase 2).
+model ReliabilityBucket {
+  id                   String   @id @default(cuid())
+  stopId               String
+  routeId              String
+  direction            String   @default("") // "" when the observation had none
+  hourOfWeek           Int      // localDayOfWeek(0=Sun) * 24 + localHour, 0–167
+  sampleCount          Int      @default(0)
+  delayedCount         Int      @default(0)
+  sumPredictedMin      Int      @default(0)
+  predictedSampleCount Int      @default(0)
+  updatedAt            DateTime @updatedAt
+
+  @@unique([stopId, routeId, direction, hourOfWeek])
+  @@map("reliability_buckets")
+}
+
 // Append-only record of delivery attempts. Makes "why didn't my email arrive?"
 // answerable without tailing server logs.
 model NotificationLog {

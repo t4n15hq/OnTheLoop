@@ -916,7 +916,10 @@ async function handleChatMessage(e) {
 }
 function addChatMessage(text, type) {
   const div = document.createElement('div'); div.className = `chat-bubble ${type}`;
-  div.innerHTML = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+  // Escape first, THEN apply the tiny markdown substitution to the already-escaped
+  // string. Any HTML in `text` (e.g. an assistant response echoing user input) is
+  // rendered inert; only our own **bold** / newline markers become real tags.
+  div.innerHTML = escapeHtml(text).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
   const c = document.getElementById('chat-messages'); c.appendChild(div); c.scrollTop = c.scrollHeight;
 }
 
@@ -1147,10 +1150,8 @@ async function updateNextTrip(schedules) {
   const destEl = document.getElementById('nt-dest');
   destEl.innerHTML = `
     <div style="display: flex; flex-direction: column; align-items: flex-end; text-align: right;">
-      <!-- Destination -->
-      <div style="font-size: 0.85rem; letter-spacing: 0.05em; color: var(--text-secondary); margin-bottom: 12px; text-transform: uppercase;">
-        ${next.favorite.alightingStopName || 'Loop'}
-      </div>
+      <!-- Destination (favorite-derived; filled via textContent below to avoid XSS) -->
+      <div id="nt-dest-name" style="font-size: 0.85rem; letter-spacing: 0.05em; color: var(--text-secondary); margin-bottom: 12px; text-transform: uppercase;"></div>
 
       <!-- Main Time & Badge Group -->
       <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 4px;">
@@ -1181,6 +1182,10 @@ async function updateNextTrip(schedules) {
       </div>
     </div>
   `;
+
+  // Favorite-derived string: assign as text so a malicious alighting stop name
+  // (attacker-controlled via the favorite record) can never inject markup.
+  destEl.querySelector('#nt-dest-name').textContent = next.favorite.alightingStopName || 'Loop';
 
   card.classList.remove('hidden');
   syncWelcomeVisibility();

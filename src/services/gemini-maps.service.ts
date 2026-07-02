@@ -69,7 +69,15 @@ export class GeminiMapsService {
    * Examples: "Willis Tower", "123 N Main St Chicago", "coffee shop near Northwestern".
    */
   static async resolveLocation(query: string): Promise<LocationResult | null> {
-    logger.info(`Resolving location via Maps grounding: ${query}`);
+    if (process.env.GEMINI_MOCK === '1') {
+      return {
+        name: 'Mock Chicago Location',
+        address: '1 N State St, Chicago, IL',
+        coordinates: { lat: 41.882, lon: -87.6278 },
+      };
+    }
+
+    logger.info(`Resolving location via Maps grounding (queryLength=${query.length})`);
 
     const prompt =
       `Find the single best location in the Chicago, IL area for: "${query}".\n\n` +
@@ -87,7 +95,7 @@ export class GeminiMapsService {
           config: { tools: [MAPS_TOOL] },
         }),
         LOCATION_TIMEOUT_MS,
-        `resolveLocation(${query.slice(0, 40)})`
+        'resolveLocation'
       );
 
       const text = response.text ?? '';
@@ -108,15 +116,13 @@ export class GeminiMapsService {
         mapsUri: mapsChunk?.uri,
       };
 
-      logger.info(
-        `Resolved "${query}" → ${result.name} @ (${result.coordinates.lat}, ${result.coordinates.lon})`
-      );
+      logger.info(`Resolved location via Maps grounding @ (${result.coordinates.lat}, ${result.coordinates.lon})`);
       return result;
     } catch (err) {
       // Timeouts and other resolution failures are non-fatal for chat: callers
       // fall back to the ungrounded path. Log and propagate so Promise.allSettled
       // can see the rejection.
-      logger.warn(`Gemini Maps grounding failed for "${query}": ${(err as Error).message}`);
+      logger.warn(`Gemini Maps grounding failed (queryLength=${query.length}): ${(err as Error).message}`);
       throw err;
     }
   }
@@ -173,7 +179,11 @@ export class GeminiMapsService {
    * Example: "How do I get from Northwestern to Willis Tower on the CTA?"
    */
   static async getTransitSuggestion(query: string): Promise<string> {
-    logger.info(`Transit suggestion: ${query}`);
+    if (process.env.GEMINI_MOCK === '1') {
+      return 'Walk to the nearest CTA stop.\nTake Route 22 Northbound.\nGet off near your destination.';
+    }
+
+    logger.info(`Transit suggestion requested (queryLength=${query.length})`);
 
     // For trip-planning questions we resolve the endpoints (when present) to
     // real coordinates via Maps grounding, then feed those to a second call

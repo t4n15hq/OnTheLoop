@@ -1,5 +1,5 @@
 {
-  "name": "cta-track",
+  "name": "ontheloop",
   "version": "2.0.0",
   "description": "CTA Train & Bus tracker with Telegram bot + web app notifications",
   "main": "dist/index.js",
@@ -7,12 +7,15 @@
     "dev": "tsx watch src/index.ts",
     "build": "npx prisma generate && tsc",
     "start": "node dist/index.js",
-    "start:prod": "npx prisma migrate deploy && node dist/index.js",
+    "start:prod": "node dist/index.js",
+    "migrate:deploy": "prisma migrate deploy",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "worker": "tsx src/worker.ts",
     "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:all": "vitest run && playwright test",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
@@ -42,6 +45,7 @@
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.2",
     "nodemailer": "^7.0.10",
+    "rate-limit-redis": "^5.0.0",
     "winston": "^3.15.0"
   },
   "devDependencies": {

@@ -63,6 +63,8 @@ model Favorite {
   updatedAt   DateTime   @updatedAt
   schedules   Schedule[]
 
+  // Postgres does not auto-index FKs; the schedule delete/lookup paths join on it.
+  @@index([userId])
   @@map("favorites")
 }
 
@@ -86,15 +88,26 @@ model Schedule {
   // falls back to email; BOTH sends via every configured channel.
   channel     Channel   @default(AUTO)
 
-  // Set by the scheduler each time a job is enqueued for this schedule;
-  // used to dedupe within the same minute window.
+  // Set by the scheduler when it atomically claims this schedule for a minute
+  // window (compare-and-swap); used to dedupe across ticks and replicas.
   lastTriggeredAt DateTime?
+
+  // Precomputed next fire instant (UTC). Lets the per-minute scan load only
+  // schedules plausibly due (`where enabled AND nextFireAt <= now`) instead of
+  // scanning every enabled row; recomputed after each fire.
+  nextFireAt      DateTime?
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   notificationLogs NotificationLog[]
 
+  // Per-minute scan filters on `enabled` (and, once wired, `nextFireAt`);
+  // userId/favoriteId back the FK join & cascade-delete paths.
+  @@index([enabled])
+  @@index([nextFireAt])
+  @@index([userId])
+  @@index([favoriteId])
   @@map("schedules")
 }
 
@@ -127,5 +140,8 @@ model NotificationLog {
   createdAt  DateTime  @default(now())
 
   @@index([userId, createdAt])
+  // schedule delete path is onDelete: SetNull — without this it seq-scans the
+  // entire append-only log table to null out matching rows.
+  @@index([scheduleId])
   @@map("notification_logs")
 }

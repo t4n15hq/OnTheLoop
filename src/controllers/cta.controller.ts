@@ -7,6 +7,9 @@ import { AlertsService } from '../services/alerts.service';
 import { AuthRequest } from '../middleware/auth.middleware';
 import logger from '../utils/logger';
 import prisma from '../utils/db';
+import { reportError } from '../utils/sentry';
+
+const MAX_ASSISTANT_STOP_LOOKUPS = 8;
 
 export class CTAController {
   /**
@@ -17,7 +20,7 @@ export class CTAController {
       const routes = await CTALookupService.getBusRoutes();
       res.status(200).json({ routes });
     } catch (error: any) {
-      logger.error('Get bus routes error:', error);
+      reportError(error, { route: 'cta/bus-routes' });
       res.status(500).json({ error: error.message });
     }
   }
@@ -37,7 +40,7 @@ export class CTAController {
       const directions = await CTALookupService.getBusDirections(routeId);
       res.status(200).json({ route: routeId, directions });
     } catch (error: any) {
-      logger.error('Get bus directions error:', error);
+      reportError(error, { route: 'cta/bus-directions', routeId: req.params.routeId });
       res.status(500).json({ error: error.message });
     }
   }
@@ -74,7 +77,7 @@ export class CTAController {
         stops,
       });
     } catch (error: any) {
-      logger.error('Get bus stops error:', error);
+      reportError(error, { route: 'cta/bus-stops', routeId: req.params.routeId });
       res.status(500).json({ error: error.message });
     }
   }
@@ -119,7 +122,7 @@ export class CTAController {
         stops,
       });
     } catch (error: any) {
-      logger.error('Find nearby stops error:', error);
+      reportError(error, { route: 'cta/nearby-stops', routeId: req.params.routeId });
       res.status(500).json({ error: error.message });
     }
   }
@@ -132,7 +135,7 @@ export class CTAController {
       const lines = CTALookupService.getTrainLines();
       res.status(200).json({ lines });
     } catch (error: any) {
-      logger.error('Get train lines error:', error);
+      reportError(error, { route: 'cta/train-lines' });
       res.status(500).json({ error: error.message });
     }
   }
@@ -146,7 +149,7 @@ export class CTAController {
       const stations = await CTALookupService.getTrainStations(line);
       res.status(200).json({ line, stations });
     } catch (error: any) {
-      logger.error('Get train stations error:', error);
+      reportError(error, { route: 'cta/train-stations', line: req.params.line });
       res.status(500).json({ error: error.message });
     }
   }
@@ -164,7 +167,9 @@ export class CTAController {
         return;
       }
 
+      const startedAt = Date.now();
       const location = await GeminiMapsService.resolveLocation(query);
+      logger.info(`Gemini location resolve completed in ${Date.now() - startedAt}ms`);
 
       if (!location) {
         res.status(404).json({ error: 'Could not resolve location' });
@@ -173,7 +178,7 @@ export class CTAController {
 
       res.status(200).json({ location });
     } catch (error: any) {
-      logger.error('Resolve location error:', error);
+      reportError(error, { route: 'cta/resolve-location', queryLength: String(req.query.query || '').length });
       res.status(500).json({ error: error.message });
     }
   }
@@ -196,12 +201,14 @@ export class CTAController {
 
       const radiusMiles = radius ? parseFloat(radius as string) : 0.5;
 
+      const startedAt = Date.now();
       const result = await GeminiMapsService.findStopsNearLocation(
         location as string,
         routeId,
         direction as string,
         radiusMiles
       );
+      logger.info(`Gemini near-location lookup completed in ${Date.now() - startedAt}ms`);
 
       if (!result) {
         res.status(404).json({ error: 'Could not find stops near location' });
@@ -216,7 +223,7 @@ export class CTAController {
         stops: result.stops,
       });
     } catch (error: any) {
-      logger.error('Find stops near natural location error:', error);
+      reportError(error, { route: 'cta/stops-near-location', routeId: req.params.routeId });
       res.status(500).json({ error: error.message });
     }
   }
@@ -248,6 +255,7 @@ export class CTAController {
         res.status(400).json({ error: 'Transit query is required' });
         return;
       }
+      const startedAt = Date.now();
 
       // 1. Check if the query matches a Favorite Name (e.g. "To Home from Gym")
       // We need to import prisma to do this directly or add a method to FavoriteService.
@@ -407,39 +415,48 @@ export class CTAController {
                   for (const direction of directions) {
                     const stops = await CTALookupService.getBusStops(routeNum, direction);
 
-                    // Check first few stops for arrivals
-                    for (const stop of stops.slice(0, 5)) {
-                      try {
-                        const arrivals = await CTAService.getBusPredictions(stop.stpid, routeNum, 2);
-                        const validArrivals = arrivals.filter(a => a.minutesAway !== null || a.isApproaching);
+                    const candidates = stops.slice(0, 5);
+                    const results = await Promise.all(
+                      candidates.map((stop) =>
+                        CTAService.getBusPredictions(stop.stpid, routeNum, 2)
+                          .then((arrivals) => ({ stop, arrivals }))
+                          .catch((err) => {
+                            logger.error(`Error fetching arrivals for stop ${stop.stpid}:`, err);
+                            return null;
+                          })
+                      )
+                    );
 
-                        if (validArrivals.length > 0) {
-                          logger.info(`Found ${validArrivals.length} arrivals for route ${routeNum} at ${stop.stpnm}`);
-                          routeArrivals.push({
-                            type: 'bus',
-                            route: routeNum,
-                            routeName: route.rtnm,
-                            stopName: stop.stpnm,
-                            direction,
-                            nextArrival: validArrivals[0].minutesAway || 0,
-                            arrivals: validArrivals.slice(0, 2).map(a => ({
-                              destination: a.destination,
-                              minutesAway: a.minutesAway,
-                              isApproaching: a.isApproaching
-                            }))
-                          });
-                          break; // Found arrivals for this route, move to next
-                        }
-                      } catch (err) {
-                        logger.error(`Error fetching arrivals for stop ${stop.stpid}:`, err);
-                        continue;
+                    for (const result of results) {
+                      if (!result) continue;
+                      const validArrivals = result.arrivals.filter(a => a.minutesAway !== null || a.isApproaching);
+
+                      if (validArrivals.length > 0) {
+                        logger.info(`Found ${validArrivals.length} arrivals for route ${routeNum} at ${result.stop.stpnm}`);
+                        routeArrivals.push({
+                          type: 'bus',
+                          route: routeNum,
+                          routeName: route.rtnm,
+                          stopName: result.stop.stpnm,
+                          direction,
+                          nextArrival: validArrivals[0].minutesAway || 0,
+                          arrivals: validArrivals.slice(0, 2).map(a => ({
+                            destination: a.destination,
+                            minutesAway: a.minutesAway,
+                            isApproaching: a.isApproaching
+                          }))
+                        });
+                        break; // Found arrivals for this route, move to next
                       }
                     }
                     if (routeArrivals.some(r => r.route === routeNum)) break;
                   }
                 }
               } catch (err) {
-                logger.error(`Error processing bus route ${routeNum}:`, err);
+                reportError(err, {
+                  route: 'cta/transit-suggestion/bus-route',
+                  routeNumber: routeNum,
+                });
                 continue;
               }
             }
@@ -469,7 +486,11 @@ export class CTAController {
             realTimeArrivals = routeArrivals.length > 0 ? { routes: routeArrivals } : null;
 
           } catch (err) {
-            logger.error('Error handling transit directions:', err);
+            reportError(err, {
+              route: 'cta/transit-suggestion/directions',
+              userId,
+              queryLength: query.length,
+            });
             conversationalResponse = await GeminiMapsService.getTransitSuggestion(query);
           }
         }
@@ -487,39 +508,42 @@ export class CTAController {
               const directions = await CTALookupService.getBusDirections(routeNumber);
               const allStopsWithArrivals: any[] = [];
 
-              // Try each direction until we find 3 stops with arrivals
+              let checkedStops = 0;
+              // Try a bounded candidate set until we find 3 stops with arrivals
               for (const direction of directions) {
                 if (allStopsWithArrivals.length >= 3) break;
+                if (checkedStops >= MAX_ASSISTANT_STOP_LOOKUPS) break;
 
                 try {
                   const stops = await CTALookupService.getBusStops(routeNumber, direction);
+                  const remaining = MAX_ASSISTANT_STOP_LOOKUPS - checkedStops;
+                  const candidates = stops.slice(0, remaining);
+                  checkedStops += candidates.length;
 
-                  // Check stops in this direction
-                  for (const stop of stops) {
-                    if (allStopsWithArrivals.length >= 3) break;
+                  const results = await Promise.all(
+                    candidates.map((stop) =>
+                      CTAService.getBusPredictions(stop.stpid, routeNumber, 3)
+                        .then((arrivals) => ({ stop, arrivals }))
+                        .catch(() => null)
+                    )
+                  );
 
-                    try {
-                      const arrivals = await CTAService.getBusPredictions(stop.stpid, routeNumber, 3);
+                  for (const result of results) {
+                    if (!result || allStopsWithArrivals.length >= 3) continue;
+                    const validArrivals = result.arrivals.filter(a => a.minutesAway !== null || a.isApproaching);
 
-                      // Only include stops with actual arrivals that have valid times
-                      const validArrivals = arrivals.filter(a => a.minutesAway !== null || a.isApproaching);
-
-                      if (validArrivals.length > 0) {
-                        allStopsWithArrivals.push({
-                          stopName: stop.stpnm,
-                          stopId: stop.stpid,
-                          direction: direction,
-                          arrivals: validArrivals.map(a => ({
-                            destination: a.destination,
-                            minutesAway: a.minutesAway,
-                            isApproaching: a.isApproaching,
-                            isDelayed: a.isDelayed
-                          }))
-                        });
-                      }
-                    } catch (err) {
-                      // Skip stops with errors
-                      continue;
+                    if (validArrivals.length > 0) {
+                      allStopsWithArrivals.push({
+                        stopName: result.stop.stpnm,
+                        stopId: result.stop.stpid,
+                        direction: direction,
+                        arrivals: validArrivals.map(a => ({
+                          destination: a.destination,
+                          minutesAway: a.minutesAway,
+                          isApproaching: a.isApproaching,
+                          isDelayed: a.isDelayed
+                        }))
+                      });
                     }
                   }
                 } catch (err) {
@@ -567,7 +591,11 @@ export class CTAController {
               }
             }
           } catch (err) {
-            logger.warn('Could not fetch real-time arrivals:', err);
+            reportError(err, {
+              route: 'cta/transit-suggestion/route-arrivals',
+              routeNumber: parsed.routeNumber,
+              userId,
+            });
           }
         }
       }
@@ -577,8 +605,13 @@ export class CTAController {
         answer: conversationalResponse || await GeminiMapsService.getTransitSuggestion(query),
         realTimeArrivals
       });
+      logger.info(`Gemini transit suggestion completed in ${Date.now() - startedAt}ms`);
     } catch (error: any) {
-      logger.error('Get transit suggestion error:', error);
+      reportError(error, {
+        route: 'cta/transit-suggestion',
+        userId: req.user?.userId,
+        queryLength: typeof req.query.query === 'string' ? req.query.query.length : 0,
+      });
       res.status(500).json({ error: error.message });
     }
   }
@@ -618,7 +651,7 @@ export class CTAController {
 
       res.status(200).json({ arrivals });
     } catch (error: any) {
-      logger.error('Get arrivals error:', error);
+      reportError(error, { route: 'cta/arrivals', type: req.query.type, routeId: req.query.routeId });
       res.status(500).json({ error: error.message });
     }
   }
@@ -632,10 +665,12 @@ export class CTAController {
         res.status(400).json({ error: 'Query is required' });
         return;
       }
+      const startedAt = Date.now();
       const config = await AISMSService.parseRouteConfig(query);
+      logger.info(`Gemini route config parse completed in ${Date.now() - startedAt}ms`);
       res.status(200).json({ config });
     } catch (error: any) {
-      logger.error('Parse route config error:', error);
+      reportError(error, { route: 'cta/parse-route-config', queryLength: String(req.body?.query || '').length });
       res.status(500).json({ error: error.message });
     }
   }
@@ -660,7 +695,7 @@ export class CTAController {
       const all = await AlertsService.getAllActive();
       res.status(200).json({ alerts: all.filter((a) => a.majorAlert) });
     } catch (error: any) {
-      logger.error('Get alerts error:', error);
+      reportError(error, { route: 'cta/alerts', userId: req.user?.userId });
       res.status(500).json({ error: error.message });
     }
   }

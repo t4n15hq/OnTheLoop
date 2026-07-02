@@ -1,6 +1,15 @@
 import nodemailer from 'nodemailer';
 import config from '../config';
 import logger from '../utils/logger';
+import { generateUnsubscribeToken } from '../utils/unsubscribe';
+
+// Keep a hung SMTP provider from pinning a worker slot for nodemailer's
+// 10-minute default. Applied to every transport we create.
+const TRANSPORT_TIMEOUTS = {
+  connectionTimeout: 5000,
+  greetingTimeout: 5000,
+  socketTimeout: 10000,
+};
 
 class EmailService {
   private transporter: nodemailer.Transporter | null = null;
@@ -17,6 +26,7 @@ class EmailService {
             user: config.email.user,
             pass: config.email.pass,
           },
+          ...TRANSPORT_TIMEOUTS,
         });
         logger.info(`Email service configured with custom SMTP (${config.email.host}:${config.email.port})`);
       } else {
@@ -27,6 +37,7 @@ class EmailService {
             user: config.email.user,
             pass: config.email.pass,
           },
+          ...TRANSPORT_TIMEOUTS,
         });
         logger.info('Email service configured with Gmail');
       }
@@ -35,7 +46,12 @@ class EmailService {
     }
   }
 
-  async sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+  async sendEmail(
+    to: string,
+    subject: string,
+    html: string,
+    headers?: Record<string, string>
+  ): Promise<boolean> {
     if (!this.transporter) {
       logger.warn('Email service not configured. Skipping email send.');
       return false;
@@ -50,9 +66,10 @@ class EmailService {
         to,
         subject,
         html,
+        headers,
       });
 
-      logger.info(`Email sent to ${to}: ${info.messageId}`);
+      logger.info(`Email sent: ${info.messageId}`);
       return true;
     } catch (error) {
       logger.error('Error sending email:', error);
@@ -61,12 +78,20 @@ class EmailService {
   }
 
   async sendArrivalNotification(
+    userId: string,
     email: string,
     routeName: string,
     arrivals: Array<{ destination: string; minutesAway: string }>,
     boardingStopName?: string,
     alightingStopName?: string
   ): Promise<boolean> {
+    // Signed, no-login unsubscribe link shared by the footer link and the
+    // List-Unsubscribe headers below.
+    const publicUrl = config.publicUrl.replace(/\/$/, '');
+    const unsubscribeToken = generateUnsubscribeToken(userId);
+    const unsubscribeUrl = `${publicUrl}/api/email/unsubscribe?u=${encodeURIComponent(
+      userId
+    )}&t=${unsubscribeToken}`;
     // Update subject and route name to show journey if both stops provided
     let displayName = routeName;
     if (boardingStopName && alightingStopName) {
@@ -166,11 +191,12 @@ class EmailService {
 
                   <!-- Footer -->
                   <div style="background-color: #0A0A0A; padding: 24px; border-top: 1px solid #262626; text-align: center;">
-                    <a href="https://askcta.xyz" style="display: inline-block; color: #EDEDED; background-color: #262626; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px; margin-bottom: 20px;">Open Dashboard</a>
-                    
+                    <a href="${publicUrl}" style="display: inline-block; color: #EDEDED; background-color: #262626; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px; margin-bottom: 20px;">Open Dashboard</a>
+
                     <p style="margin: 0; color: #444444; font-size: 11px; font-family: monospace; line-height: 1.6;">
-                      Loop Utility • Chicago Transit Automation<br>
-                      <a href="#" style="color: #666666; text-decoration: none;">Unsubscribe</a>
+                      Loop • Chicago Transit Automation<br>
+                      You're receiving this because you enabled email arrival alerts for your Loop account.<br>
+                      <a href="${unsubscribeUrl}" style="color: #666666; text-decoration: underline;">Unsubscribe</a>
                     </p>
                   </div>
 
@@ -182,7 +208,14 @@ class EmailService {
       </html>
     `;
 
-    return this.sendEmail(email, subject, html);
+    // RFC 8058 one-click unsubscribe so Gmail/Outlook show a native
+    // "Unsubscribe" control and mailbox providers trust the sender.
+    const headers = {
+      'List-Unsubscribe': `<${unsubscribeUrl}>`,
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    };
+
+    return this.sendEmail(email, subject, html, headers);
   }
 }
 

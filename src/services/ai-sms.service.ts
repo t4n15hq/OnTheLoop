@@ -49,7 +49,7 @@ export class AISMSService {
    */
   static async parseRouteConfig(query: string): Promise<any> {
     try {
-      logger.info(`Parsing route config: ${query}`);
+      logger.info(`Parsing route config (queryLength=${query.length})`);
 
       // 1. Ask Gemini to extract intent and addresses with detailed instructions
       const model = this.genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
@@ -136,7 +136,7 @@ BE CONSERVATIVE: If you're unsure whether something is an address, assume it's a
 
       // 2. If it's address-to-address, use real Geocoding + Stop Lookup
       if (analysis.isAddressToAddress && analysis.originAddress) {
-        logger.info(`Resolving addresses: ${analysis.originAddress} -> ${analysis.destinationAddress}`);
+        logger.info('Resolving address-to-address route config');
 
         // Resolve Origin
         const originLoc = await GeminiMapsService.resolveLocation(analysis.originAddress);
@@ -293,7 +293,7 @@ BE CONSERVATIVE: If you're unsure whether something is an address, assume it's a
 
       // 4. Fallback: If no stop name was found, ask Gemini for the standard JSON
       if (!config.stopName) {
-        logger.info(`Calling fallback AI. Current config before fallback: ${JSON.stringify(config)}`);
+        logger.info('Calling fallback AI for route config');
         const prompt2 = `Extract CTA route configuration from: "${query}"
          Respond ONLY with JSON:
          {
@@ -312,7 +312,7 @@ BE CONSERVATIVE: If you're unsure whether something is an address, assume it's a
         const jsonMatch2 = text2.match(/\{[\s\S]*\}/);
         if (jsonMatch2) {
           const fallbackConfig = JSON.parse(jsonMatch2[0]);
-          logger.info(`Fallback AI returned: ${JSON.stringify(fallbackConfig)}`);
+          logger.info('Fallback AI returned route config');
 
           // Save the inferred direction before merge - THIS IS SACRED
           const inferredDirection = config.direction;
@@ -332,7 +332,9 @@ BE CONSERVATIVE: If you're unsure whether something is an address, assume it's a
             logger.info(`Forced inferred direction: ${inferredDirection} (fallback tried to use: ${fallbackConfig.direction})`);
           }
 
-          logger.info(`After merge. Final config: ${JSON.stringify(config)}`);
+          logger.info(
+            `After merge. Final config routeType=${config.routeType} routeId=${config.routeId} direction=${config.direction} hasStop=${Boolean(config.stopName)} hasAlighting=${Boolean(config.alightingName)}`
+          );
         }
       }
 
@@ -348,7 +350,7 @@ BE CONSERVATIVE: If you're unsure whether something is an address, assume it's a
    */
   static async parseQuery(query: string): Promise<ParsedSMSQuery> {
     try {
-      logger.info(`Parsing SMS query: ${query}`);
+      logger.info(`Parsing SMS query (queryLength=${query.length})`);
 
       const model = this.genAI.getGenerativeModel({
         model: 'gemini-flash-latest',
@@ -668,7 +670,12 @@ Examples:
       // Parse the query
       const parsed = await this.parseQuery(query);
 
-      logger.info(`Parsed intent: ${parsed.intent}`, parsed);
+      logger.info(`Parsed intent: ${parsed.intent}`, {
+        hasRouteNumber: Boolean(parsed.routeNumber),
+        hasLocation: Boolean(parsed.location),
+        hasOrigin: Boolean(parsed.origin),
+        hasDestination: Boolean(parsed.destination),
+      });
 
       // Handle based on intent
       switch (parsed.intent) {

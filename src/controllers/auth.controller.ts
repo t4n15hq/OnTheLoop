@@ -3,7 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { AuthService } from '../services/auth.service';
 import { AuthRequest } from '../middleware/auth.middleware';
 import config from '../config';
-import logger from '../utils/logger';
+import { reportError } from '../utils/sentry';
 
 export class AuthController {
   static async register(req: Request, res: Response): Promise<void> {
@@ -23,7 +23,7 @@ export class AuthController {
         token: result.token,
       });
     } catch (error: any) {
-      logger.error('Registration error:', error);
+      reportError(error, { route: 'auth/register' });
       res.status(400).json({ error: error.message || 'Registration failed' });
     }
   }
@@ -45,7 +45,7 @@ export class AuthController {
         token: result.token,
       });
     } catch (error: any) {
-      logger.error('Login error:', error);
+      reportError(error, { route: 'auth/login' });
       res.status(401).json({ error: error.message || 'Login failed' });
     }
   }
@@ -64,7 +64,7 @@ export class AuthController {
       await AuthService.updatePassword(userId, password);
       res.status(200).json({ message: 'Password updated successfully' });
     } catch (error: any) {
-      logger.error('Update password error:', error);
+      reportError(error, { route: 'auth/password', userId: req.user?.userId });
       res.status(400).json({ error: error.message || 'Failed to update password' });
     }
   }
@@ -97,7 +97,7 @@ export class AuthController {
       });
       res.status(200).json({ message: 'Profile updated successfully', user });
     } catch (error: any) {
-      logger.error('Update profile error:', error);
+      reportError(error, { route: 'auth/profile', userId: req.user?.userId });
       res.status(400).json({ error: error.message || 'Failed to update profile' });
     }
   }
@@ -118,7 +118,7 @@ export class AuthController {
 
       res.status(200).json({ token, deepLink, botUsername: botUsername || null });
     } catch (error: any) {
-      logger.error('Create telegram link error:', error);
+      reportError(error, { route: 'auth/telegram/link', userId: req.user?.userId });
       res.status(500).json({ error: error.message || 'Failed to create link' });
     }
   }
@@ -129,7 +129,7 @@ export class AuthController {
       await AuthService.unlinkTelegram(userId);
       res.status(200).json({ message: 'Telegram unlinked' });
     } catch (error: any) {
-      logger.error('Unlink telegram error:', error);
+      reportError(error, { route: 'auth/telegram/unlink', userId: req.user?.userId });
       res.status(500).json({ error: error.message || 'Failed to unlink' });
     }
   }

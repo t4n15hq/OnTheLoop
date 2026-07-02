@@ -9,8 +9,9 @@ import {
 import { CacheService } from './cache.service';
 import { createCoalescer } from '../utils/coalesce';
 
-const CTA_TRAIN_API_BASE = 'http://lapi.transitchicago.com/api/1.0';
-const CTA_BUS_API_BASE = 'http://www.ctabustracker.com/bustime/api/v2';
+const CTA_TRAIN_API_BASE = 'https://lapi.transitchicago.com/api/1.0';
+const CTA_BUS_API_BASE = 'https://www.ctabustracker.com/bustime/api/v2';
+const CTA_MOCK = process.env.CTA_MOCK === '1';
 
 // Stale-while-error: keep the last good response around for up to 10 min so we
 // can serve something if CTA returns a 500 or times out on the next call.
@@ -156,6 +157,19 @@ export class CTAService {
     routeCode?: string,
     direction?: string
   ): Promise<FormattedArrival[]> {
+    if (CTA_MOCK) {
+      const mock: FormattedArrival[] = [{
+        routeName: `${routeCode || 'Red'} Line`,
+        destination: direction || 'Loop',
+        arrivalTime: new Date(Date.now() + 5 * 60_000),
+        minutesAway: 5,
+        isApproaching: false,
+        isDelayed: false,
+        confidence: 'live',
+      }];
+      return mock;
+    }
+
     const cacheKey = CacheService.generateKey(
       'train-arrivals',
       stationId,
@@ -245,24 +259,42 @@ export class CTAService {
     limit: number = 3,
     direction?: string
   ): Promise<FormattedArrival[]> {
+    if (CTA_MOCK) {
+      const mock: FormattedArrival[] = [{
+        routeName: `Route ${routeId || '22'}`,
+        destination: direction || 'Northbound',
+        arrivalTime: new Date(Date.now() + 6 * 60_000),
+        minutesAway: 6,
+        isApproaching: false,
+        isDelayed: false,
+        confidence: 'live',
+      }];
+      return mock.slice(0, limit);
+    }
+
     const cacheKey = CacheService.generateKey(
       'bus',
       stopId,
       routeId || 'all',
-      direction || 'all',
-      limit.toString()
+      direction || 'all'
     );
 
     const cached = await CacheService.get<FormattedArrival[]>(cacheKey);
     if (cached) {
       logger.debug(`Bus predictions cache hit for ${stopId}`);
-      return cached.map((a) => ({ ...a, arrivalTime: new Date(a.arrivalTime) }));
+      return sortAndTrim(
+        cached.map((a) => ({ ...a, arrivalTime: new Date(a.arrivalTime) })),
+        limit
+      );
     }
 
     return withCoalescing(cacheKey, async () => {
       const fresh = await CacheService.get<FormattedArrival[]>(cacheKey);
       if (fresh) {
-        return fresh.map((a) => ({ ...a, arrivalTime: new Date(a.arrivalTime) }));
+        return sortAndTrim(
+          fresh.map((a) => ({ ...a, arrivalTime: new Date(a.arrivalTime) })),
+          limit
+        );
       }
 
       const params: Record<string, unknown> = {
@@ -281,7 +313,7 @@ export class CTAService {
       } catch (err) {
         logger.warn(`CTA bus request failed for ${stopId}; trying stale cache`, err);
         const stale = await readStale(cacheKey);
-        if (stale) return stale;
+        if (stale) return sortAndTrim(stale, limit);
         throw err;
       }
 
@@ -293,9 +325,8 @@ export class CTAService {
       //      we treat all messages as empty results — if the stop is truly
       //      broken it'll keep returning empty, which is the right UX anyway).
       if (body.error && !body.prd) {
-        const result: FormattedArrival[] = [];
-        await writeCache(cacheKey, result);
-        return result;
+        await writeCache(cacheKey, []);
+        return [];
       }
 
       let raw = body.prd || [];
@@ -326,9 +357,9 @@ export class CTAService {
         };
       });
 
-      const result = sortAndTrim(arrivals, limit);
+      const result = sortAndTrim(arrivals);
       await writeCache(cacheKey, result);
-      return result;
+      return sortAndTrim(result, limit);
     });
   }
 

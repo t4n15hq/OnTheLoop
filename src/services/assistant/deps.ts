@@ -20,6 +20,13 @@ export interface BusStopInfo {
   stpnm: string;
 }
 
+/** Minimal train-station shape the assistant needs for the fast-path. */
+export interface TrainStationInfo {
+  map_id: string;
+  station_name: string;
+  directions: string[];
+}
+
 export interface AssistantDeps {
   /** AI intent + slot extraction (mockable). */
   parseQuery(query: string): Promise<ParsedIntent>;
@@ -46,4 +53,6 @@ export interface AssistantDeps {
     routeCode?: string,
     direction?: string
   ): Promise<ArrivalLike[]>;
+  /** Stations on a train line (static CTA data), for the deterministic fast-path. */
+  getTrainStations(line: string): Promise<TrainStationInfo[]>;
 }

@@ -127,7 +127,20 @@ function setupEventListeners() {
   });
 
   changePasswordForm.addEventListener('submit', handleChangePassword);
+  document.getElementById('delete-account-form')?.addEventListener('submit', handleDeleteAccount);
   document.getElementById('profile-update-form').addEventListener('submit', handleProfileUpdate);
+
+  // Account lifecycle: forgot / reset password
+  document.getElementById('forgot-password-btn')?.addEventListener('click', () => {
+    const emailEntered = document.getElementById('auth-email')?.value?.trim();
+    const forgotEmail = document.getElementById('forgot-email');
+    if (forgotEmail && emailEntered) forgotEmail.value = emailEntered;
+    const msg = document.getElementById('forgot-msg');
+    if (msg) msg.style.display = 'none';
+    openModal('forgot-password-modal');
+  });
+  document.getElementById('forgot-password-form')?.addEventListener('submit', handleForgotPassword);
+  document.getElementById('reset-password-form')?.addEventListener('submit', handleResetPassword);
   document.getElementById('link-telegram-btn')?.addEventListener('click', handleLinkTelegram);
   document.getElementById('unlink-telegram-btn')?.addEventListener('click', handleUnlinkTelegram);
 
@@ -547,8 +560,17 @@ async function handleProfileUpdate(e) {
 
 async function handleChangePassword(e) {
   e.preventDefault();
+  const currentPassword = document.getElementById('current-password').value;
   const newPassword = document.getElementById('new-password').value;
   const msgEl = document.getElementById('password-msg');
+
+  if (!currentPassword) {
+    msgEl.textContent = 'Enter your current password';
+    msgEl.style.color = 'var(--cta-red)';
+    msgEl.style.background = 'rgba(255, 46, 46, 0.1)';
+    msgEl.style.display = 'block';
+    return;
+  }
 
   if (newPassword.length < 6) {
     msgEl.textContent = 'Password must be at least 6 characters';
@@ -566,7 +588,7 @@ async function handleChangePassword(e) {
   try {
     await apiCall('/api/auth/password', {
       method: 'PUT',
-      body: JSON.stringify({ password: newPassword })
+      body: JSON.stringify({ currentPassword, newPassword })
     });
 
     msgEl.textContent = 'Password updated successfully!';
@@ -584,6 +606,139 @@ async function handleChangePassword(e) {
     msgEl.style.background = 'rgba(255, 46, 46, 0.1)';
     msgEl.style.display = 'block';
   } finally {
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
+}
+
+/* ================= ACCOUNT LIFECYCLE ================= */
+// Raw reset token pulled from the emailed link; only lives in memory.
+let pendingResetToken = null;
+
+function getResetTokenFromUrl() {
+  const params = new URLSearchParams(location.search || '');
+  // Emailed link is `${publicUrl}/reset-password?token=…`.
+  if (location.pathname === '/reset-password' && params.get('token')) {
+    return params.get('token');
+  }
+  // Also accept `?reset=…` as a fallback trigger.
+  return params.get('reset') || null;
+}
+
+function setLifecycleMsg(el, text, ok) {
+  if (!el) return;
+  el.textContent = text;
+  el.style.color = ok ? 'var(--cta-green)' : 'var(--cta-red)';
+  el.style.background = ok ? 'rgba(0, 255, 102, 0.1)' : 'rgba(255, 46, 46, 0.1)';
+  el.style.display = 'block';
+}
+
+async function handleForgotPassword(e) {
+  e.preventDefault();
+  const email = document.getElementById('forgot-email').value.trim();
+  const msgEl = document.getElementById('forgot-msg');
+  if (!email) {
+    setLifecycleMsg(msgEl, 'Please enter your email', false);
+    return;
+  }
+
+  const btn = e.target.querySelector('button');
+  const originalText = btn.textContent;
+  btn.textContent = 'Sending...';
+  btn.disabled = true;
+
+  try {
+    await apiCall('/api/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email })
+    });
+    // Always the same response — no account enumeration.
+    setLifecycleMsg(msgEl, 'If an account exists for that email, a reset link is on its way. Check your inbox.', true);
+  } catch (error) {
+    setLifecycleMsg(msgEl, error.message || 'Something went wrong. Please try again.', false);
+  } finally {
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
+}
+
+async function handleResetPassword(e) {
+  e.preventDefault();
+  const newPassword = document.getElementById('reset-new-password').value;
+  const msgEl = document.getElementById('reset-msg');
+
+  if (!pendingResetToken) {
+    setLifecycleMsg(msgEl, 'This reset link is invalid. Please request a new one.', false);
+    return;
+  }
+  if (newPassword.length < 6) {
+    setLifecycleMsg(msgEl, 'Password must be at least 6 characters', false);
+    return;
+  }
+
+  const btn = e.target.querySelector('button');
+  const originalText = btn.textContent;
+  btn.textContent = 'Resetting...';
+  btn.disabled = true;
+
+  try {
+    await apiCall('/api/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token: pendingResetToken, newPassword })
+    });
+
+    // Reset invalidates existing sessions server-side — drop any stale token.
+    pendingResetToken = null;
+    authToken = null;
+    currentUser = null;
+    localStorage.removeItem('authToken');
+    e.target.reset();
+    setLifecycleMsg(msgEl, 'Password reset. Redirecting you to sign in…', true);
+
+    setTimeout(() => {
+      closeModal('reset-password-modal');
+      // Strip the token from the URL and land on the login screen.
+      history.replaceState(null, '', '/#login');
+      setAuthMode(false);
+      showAuth();
+    }, 1200);
+  } catch (error) {
+    setLifecycleMsg(msgEl, error.message || 'Invalid or expired reset token', false);
+    btn.textContent = originalText;
+    btn.disabled = false;
+  }
+}
+
+async function handleDeleteAccount(e) {
+  e.preventDefault();
+  const password = document.getElementById('delete-password').value;
+  const msgEl = document.getElementById('delete-msg');
+
+  if (!password) {
+    setLifecycleMsg(msgEl, 'Enter your current password to confirm', false);
+    return;
+  }
+  if (!confirm('Permanently delete your account and all data? This cannot be undone.')) {
+    return;
+  }
+
+  const btn = e.target.querySelector('button');
+  const originalText = btn.textContent;
+  btn.textContent = 'Deleting...';
+  btn.disabled = true;
+
+  try {
+    await apiCall('/api/account', {
+      method: 'DELETE',
+      body: JSON.stringify({ password })
+    });
+
+    e.target.reset();
+    closeModal('profile-modal');
+    // Clear session and return to the sign-in screen.
+    handleLogout();
+  } catch (error) {
+    setLifecycleMsg(msgEl, error.message || 'Failed to delete account', false);
     btn.textContent = originalText;
     btn.disabled = false;
   }
@@ -692,6 +847,18 @@ async function showDashboard() {
 function applyRoute() {
   const hash = (location.hash || '').replace(/^#/, '').toLowerCase();
 
+  // Password reset link (e.g. /reset-password?token=… from the emailed link).
+  // Handled before the auth check so even a stale logged-in session lands here.
+  const resetToken = getResetTokenFromUrl();
+  if (resetToken) {
+    pendingResetToken = resetToken;
+    showAuth();
+    const msg = document.getElementById('reset-msg');
+    if (msg) msg.style.display = 'none';
+    openModal('reset-password-modal');
+    return;
+  }
+
   if (authToken) {
     showDashboard();
     return;
@@ -715,6 +882,7 @@ function setAuthMode(registerMode) {
   const toggleBtn = document.getElementById('auth-toggle-btn');
   const passwordInput = document.getElementById('auth-password');
   const nameWrap = document.getElementById('auth-name-wrap');
+  const forgotWrap = document.getElementById('forgot-password-wrap');
 
   if (isRegistering) {
     subtitle.textContent = 'Create your account';
@@ -722,12 +890,14 @@ function setAuthMode(registerMode) {
     toggleBtn.textContent = 'Already have an account? Login';
     passwordInput.autocomplete = 'new-password';
     nameWrap?.classList.remove('hidden');
+    forgotWrap?.classList.add('hidden');
   } else {
     subtitle.textContent = 'Sign in to continue';
     submitBtn.textContent = 'Sign In';
     toggleBtn.textContent = 'Need an account? Register';
     passwordInput.autocomplete = 'current-password';
     nameWrap?.classList.add('hidden');
+    forgotWrap?.classList.remove('hidden');
   }
   authError.style.display = 'none';
 }

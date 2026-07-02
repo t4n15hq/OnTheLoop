@@ -25,6 +25,12 @@ model User {
   // for the window to be active; leave one null to disable.
   quietHoursStart          String?
   quietHoursEnd            String?
+  // Account lifecycle (issue #16): password reset flow, session invalidation
+  // on password change, and email verification state.
+  passwordResetToken       String?      @unique
+  passwordResetExpires     DateTime?
+  passwordChangedAt        DateTime?
+  emailVerifiedAt          DateTime?
   createdAt                DateTime     @default(now())
   updatedAt                DateTime     @updatedAt
   favorites                Favorite[]

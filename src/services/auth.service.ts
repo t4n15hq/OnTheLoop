@@ -4,10 +4,22 @@ import jwt from 'jsonwebtoken';
 import config from '../config';
 import prisma from '../utils/db';
 import logger from '../utils/logger';
+import emailService from './email.service';
 
 interface TokenPayload {
   userId: string;
   email: string;
+  // Populated by jwt on verify; used to invalidate sessions issued before a
+  // password change/reset.
+  iat?: number;
+  exp?: number;
+}
+
+// How long a password reset link stays valid.
+const RESET_TOKEN_TTL_MS = 30 * 60 * 1000;
+
+function sha256(value: string): string {
+  return crypto.createHash('sha256').update(value).digest('hex');
 }
 
 function normalizeEmail(email: string): string {
@@ -68,8 +80,31 @@ export class AuthService {
     } as jwt.SignOptions);
   }
 
-  static verifyToken(token: string): TokenPayload {
-    return jwt.verify(token, config.jwt.secret) as TokenPayload;
+  /**
+   * Verify a JWT and confirm it is still valid for the user.
+   *
+   * Pins the algorithm to HS256 (defence against alg-confusion / "none"
+   * downgrade attacks) and rejects any token minted before the user last
+   * changed their password, so a password reset invalidates existing sessions.
+   */
+  static async verifyToken(token: string): Promise<TokenPayload> {
+    const payload = jwt.verify(token, config.jwt.secret, {
+      algorithms: ['HS256'],
+    }) as TokenPayload;
+
+    const user = await prisma.user.findUnique({ where: { id: payload.userId } });
+    if (!user) {
+      throw new Error('User no longer exists');
+    }
+    if (
+      user.passwordChangedAt &&
+      typeof payload.iat === 'number' &&
+      payload.iat * 1000 < user.passwordChangedAt.getTime()
+    ) {
+      throw new Error('Token invalidated by password change');
+    }
+
+    return payload;
   }
 
   static async register(email: string, password: string, name?: string) {
@@ -124,10 +159,106 @@ export class AuthService {
     return prisma.user.findUnique({ where: { telegramChatId: chatId } });
   }
 
-  static async updatePassword(userId: string, password: string) {
-    const hashed = await this.hashPassword(password);
-    await prisma.user.update({ where: { id: userId }, data: { password: hashed } });
+  /**
+   * Change the password for a logged-in user. Requires the current password
+   * to be re-entered (defence against session hijack / drive-by CSRF) and
+   * stamps passwordChangedAt so existing tokens are invalidated.
+   */
+  static async updatePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const valid = await this.comparePassword(currentPassword, user.password);
+    if (!valid) {
+      throw new Error('Current password is incorrect');
+    }
+
+    const hashed = await this.hashPassword(newPassword);
+    await prisma.user.update({
+      where: { id: userId },
+      data: { password: hashed, passwordChangedAt: new Date() },
+    });
     logger.info(`Password updated for user: ${userId}`);
+  }
+
+  /**
+   * Begin a password reset. Always resolves without revealing whether the
+   * email exists (no account enumeration). When the account exists we store a
+   * SHA-256 hash of a random token (the raw token only ever lives in the
+   * emailed link) with a 30-minute expiry.
+   */
+  static async requestPasswordReset(email: string): Promise<void> {
+    const normalized = normalizeEmail(email);
+    const user = await prisma.user.findUnique({ where: { email: normalized } });
+    if (!user) {
+      logger.info(`Password reset requested for unknown email: ${normalized}`);
+      return;
+    }
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordResetToken: sha256(rawToken),
+        passwordResetExpires: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+      },
+    });
+
+    const resetLink = `${config.publicUrl}/reset-password?token=${rawToken}`;
+    await emailService.sendPasswordResetEmail(user.email, resetLink);
+    logger.info(`Password reset link issued for user: ${user.id}`);
+  }
+
+  /**
+   * Complete a password reset. Looks the user up by the hashed token, enforces
+   * single-use + expiry, sets the new hash, stamps passwordChangedAt (which
+   * invalidates existing sessions) and clears the reset token.
+   */
+  static async resetPassword(rawToken: string, newPassword: string): Promise<void> {
+    const hashed = sha256(rawToken);
+    const user = await prisma.user.findUnique({ where: { passwordResetToken: hashed } });
+
+    if (
+      !user ||
+      !user.passwordResetExpires ||
+      user.passwordResetExpires.getTime() < Date.now()
+    ) {
+      throw new Error('Invalid or expired reset token');
+    }
+
+    const hashedPassword = await this.hashPassword(newPassword);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        passwordChangedAt: new Date(),
+        passwordResetToken: null,
+        passwordResetExpires: null,
+      },
+    });
+    logger.info(`Password reset completed for user: ${user.id}`);
+  }
+
+  /**
+   * Self-service account deletion. Requires the current password to be
+   * re-entered. Relies on schema-level cascades to remove favorites,
+   * schedules and notification logs.
+   */
+  static async deleteAccount(userId: string, currentPassword: string): Promise<void> {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    const valid = await this.comparePassword(currentPassword, user.password);
+    if (!valid) {
+      throw new Error('Current password is incorrect');
+    }
+
+    await prisma.user.delete({ where: { id: userId } });
+    logger.info(`Account deleted: ${userId}`);
   }
 
   static async updateProfile(

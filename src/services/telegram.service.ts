@@ -12,6 +12,48 @@ export function escapeHtml(s: string): string {
     .replace(/>/g, '&gt;');
 }
 
+// --- Inline-button (callback) actions on scheduled pings -------------------
+// callback_data is capped at 64 bytes by Telegram, so we keep the encoding
+// compact: a single-char action tag, `|`-joined with any ids it needs. cuids
+// are 25 chars, so `s|<favoriteId>|<scheduleId>` stays well under the limit.
+// `|` never appears in a cuid, making the split unambiguous.
+export const TG_ACTION = { SNOOZE: 's', MUTE: 'm', NEXT: 'n' } as const;
+
+export type TelegramCallbackAction =
+  | { action: 'mute' }
+  | { action: 'snooze'; favoriteId: string; scheduleId?: string }
+  | { action: 'next'; favoriteId: string };
+
+/** Inline keyboard attached to each scheduled arrival ping. */
+export function buildPingKeyboard(favoriteId: string, scheduleId?: string) {
+  return {
+    inline_keyboard: [
+      [
+        { text: 'Snooze 5m', callback_data: `${TG_ACTION.SNOOZE}|${favoriteId}|${scheduleId ?? ''}` },
+        { text: 'Mute today', callback_data: TG_ACTION.MUTE },
+        { text: 'Next one instead', callback_data: `${TG_ACTION.NEXT}|${favoriteId}` },
+      ],
+    ],
+  };
+}
+
+/** Decode callback_data from a button tap. Returns null for anything unknown. */
+export function parseCallbackData(data: string): TelegramCallbackAction | null {
+  const [action, favoriteId, scheduleId] = data.split('|');
+  switch (action) {
+    case TG_ACTION.MUTE:
+      return { action: 'mute' };
+    case TG_ACTION.SNOOZE:
+      return favoriteId
+        ? { action: 'snooze', favoriteId, scheduleId: scheduleId || undefined }
+        : null;
+    case TG_ACTION.NEXT:
+      return favoriteId ? { action: 'next', favoriteId } : null;
+    default:
+      return null;
+  }
+}
+
 /**
  * Minimal Telegram Bot API wrapper. We only need sendMessage and webhook management.
  */
@@ -37,7 +79,12 @@ class TelegramServiceImpl {
   async sendMessage(
     chatId: string | number,
     text: string,
-    opts: { parseMode?: 'Markdown' | 'MarkdownV2' | 'HTML'; disablePreview?: boolean } = {}
+    opts: {
+      parseMode?: 'Markdown' | 'MarkdownV2' | 'HTML';
+      disablePreview?: boolean;
+      /** Inline keyboard / reply markup, passed through verbatim to Telegram. */
+      replyMarkup?: unknown;
+    } = {}
   ): Promise<void> {
     const client = this.getClient();
     if (!client) {
@@ -50,6 +97,7 @@ class TelegramServiceImpl {
       text,
       parse_mode: opts.parseMode,
       disable_web_page_preview: opts.disablePreview ?? true,
+      reply_markup: opts.replyMarkup,
     };
 
     // Single retry on transient errors (timeouts, 5xx, 429 with retry_after).
@@ -81,6 +129,23 @@ class TelegramServiceImpl {
         logger.error(`Telegram sendMessage retry failed for chat ${chatId}:`, detail);
         throw retryErr;
       }
+    }
+  }
+
+  /**
+   * Acknowledge a callback_query (button tap) so Telegram clears the button's
+   * loading spinner. Best-effort: a failed ack never blocks the real handler.
+   */
+  async answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void> {
+    const client = this.getClient();
+    if (!client) return;
+    try {
+      await client.post('/answerCallbackQuery', {
+        callback_query_id: callbackQueryId,
+        text,
+      });
+    } catch (err) {
+      logger.warn('Telegram answerCallbackQuery failed:', err);
     }
   }
 

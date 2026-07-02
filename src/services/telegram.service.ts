@@ -29,6 +29,11 @@ export const TG_ACTION = {
   SAVE: 'sv',
   ALERT: 'al',
   REFRESH: 'rf',
+  // Live-updating arrivals board (#53). LIVE starts a board from a resolved
+  // answer context (same token store as Refresh); LIVE_STOP ends the board the
+  // Stop button is attached to (chat + message id come from the callback).
+  LIVE: 'lv',
+  LIVE_STOP: 'ls',
 } as const;
 
 export type TelegramCallbackAction =
@@ -37,7 +42,9 @@ export type TelegramCallbackAction =
   | { action: 'next'; favoriteId: string }
   | { action: 'save'; token: string }
   | { action: 'alert'; token: string }
-  | { action: 'refresh'; token: string };
+  | { action: 'refresh'; token: string }
+  | { action: 'live'; token: string }
+  | { action: 'live_stop' };
 
 /** Inline keyboard attached to each scheduled arrival ping. */
 export function buildPingKeyboard(favoriteId: string, scheduleId?: string) {
@@ -70,6 +77,10 @@ export function parseCallbackData(data: string): TelegramCallbackAction | null {
       return arg ? { action: 'alert', token: arg } : null;
     case TG_ACTION.REFRESH:
       return arg ? { action: 'refresh', token: arg } : null;
+    case TG_ACTION.LIVE:
+      return arg ? { action: 'live', token: arg } : null;
+    case TG_ACTION.LIVE_STOP:
+      return { action: 'live_stop' };
     default:
       return null;
   }
@@ -127,7 +138,11 @@ export function getActionContext(token: string): AnswerActionContext | null {
   return entry.ctx;
 }
 
-/** Inline keyboard attached to an assistant answer that resolved to a route. */
+/**
+ * Inline keyboard attached to an assistant answer that resolved to a route.
+ * Row 1 is the #50 actions; row 2 adds the #53 "Live" board toggle, which
+ * reuses the very same action-context token so the board can re-fetch arrivals.
+ */
 export function buildAnswerKeyboard(token: string) {
   return {
     inline_keyboard: [
@@ -136,7 +151,44 @@ export function buildAnswerKeyboard(token: string) {
         { text: 'Set an alert', callback_data: `${TG_ACTION.ALERT}|${token}` },
         { text: 'Refresh', callback_data: `${TG_ACTION.REFRESH}|${token}` },
       ],
+      [{ text: '🔴 Live', callback_data: `${TG_ACTION.LIVE}|${token}` }],
     ],
+  };
+}
+
+/** Inline keyboard for a running live board: a single "Stop" button (#53). */
+export function buildLiveBoardKeyboard() {
+  return {
+    inline_keyboard: [[{ text: '⏹ Stop live updates', callback_data: TG_ACTION.LIVE_STOP }]],
+  };
+}
+
+// --- Dynamic saved-routes reply keyboard (#54.1) ---------------------------
+// A persistent reply keyboard built ENTIRELY from the user's own favorites —
+// one button per favorite, labelled from that favorite's own `name`. Nothing is
+// hardcoded: callers query the user's favorites at send time and pass them in,
+// so the keyboard always reflects the current set (add/rename/delete). Tapping a
+// button sends the favorite's name as a plain text message, which the controller
+// routes to the `/next` equivalent for that favorite.
+
+/** Minimal shape needed to render a favorite as a keyboard button. */
+export interface FavoriteButtonLike {
+  name: string;
+}
+
+/**
+ * Build a reply keyboard from the user's favorites, or `undefined` when they
+ * have none (Telegram then shows no custom keyboard — caller decides on any
+ * "save a route" prompt). One button per row keeps long names readable.
+ */
+export function buildFavoritesKeyboard(
+  favorites: FavoriteButtonLike[]
+): { keyboard: { text: string }[][]; resize_keyboard: true; input_field_placeholder: string } | undefined {
+  if (!favorites || favorites.length === 0) return undefined;
+  return {
+    keyboard: favorites.map((f) => [{ text: f.name }]),
+    resize_keyboard: true,
+    input_field_placeholder: 'Tap a saved route for live arrivals',
   };
 }
 
@@ -253,6 +305,72 @@ class TelegramServiceImpl {
     } catch (error: any) {
       const detail = error?.response?.data || error?.message || error;
       logger.warn(`Telegram editMessageText failed for chat ${chatId}:`, detail);
+    }
+  }
+
+  /**
+   * Send a message and return its Telegram message_id, or null on failure.
+   * The live-updating board (#53) needs the id up front so it can editMessageText
+   * that exact message on each tick. Best-effort/single attempt: if the send
+   * fails we return null and the caller simply doesn't start the board.
+   */
+  async sendMessageReturningId(
+    chatId: string | number,
+    text: string,
+    opts: {
+      parseMode?: 'Markdown' | 'MarkdownV2' | 'HTML';
+      disablePreview?: boolean;
+      replyMarkup?: unknown;
+    } = {}
+  ): Promise<number | null> {
+    const client = this.getClient();
+    if (!client) {
+      logger.warn('Telegram bot token not configured; skipping sendMessageReturningId');
+      return null;
+    }
+    try {
+      const { data } = await client.post('/sendMessage', {
+        chat_id: chatId,
+        text,
+        parse_mode: opts.parseMode,
+        disable_web_page_preview: opts.disablePreview ?? true,
+        reply_markup: opts.replyMarkup,
+      });
+      const id = data?.result?.message_id;
+      return typeof id === 'number' ? id : null;
+    } catch (error: any) {
+      const detail = error?.response?.data || error?.message || error;
+      logger.warn(`Telegram sendMessageReturningId failed for chat ${chatId}:`, detail);
+      return null;
+    }
+  }
+
+  /**
+   * Answer an inline_query (#52) with a set of results. Stateless/anonymous —
+   * `is_personal` defaults to false and results are cached by Telegram for
+   * `cacheTime` seconds so popular stops don't hammer the CTA API or our rate
+   * limits. Best-effort: a failed answer is logged, not thrown.
+   */
+  async answerInlineQuery(
+    inlineQueryId: string,
+    results: unknown[],
+    opts: { cacheTime?: number; isPersonal?: boolean } = {}
+  ): Promise<void> {
+    const client = this.getClient();
+    if (!client) {
+      logger.warn('Telegram bot token not configured; skipping answerInlineQuery');
+      return;
+    }
+    try {
+      await client.post('/answerInlineQuery', {
+        inline_query_id: inlineQueryId,
+        results,
+        cache_time: opts.cacheTime ?? 30,
+        is_personal: opts.isPersonal ?? false,
+      });
+    } catch (error: any) {
+      const detail = error?.response?.data || error?.message || error;
+      logger.warn('Telegram answerInlineQuery failed:', detail);
     }
   }
 

@@ -4,6 +4,7 @@ import http from 'http';
 import logger from './utils/logger';
 import { createNotificationWorker } from './jobs/notification.job';
 import { createReliabilityWorker, scheduleReliabilityRollup } from './jobs/reliability.job';
+import { createLiveBoardWorker } from './jobs/live-board.job';
 
 // Load environment variables
 dotenv.config();
@@ -18,6 +19,8 @@ const reliabilityWorker = createReliabilityWorker();
 scheduleReliabilityRollup().catch((err) =>
   logger.error('Failed to schedule reliability rollup:', err)
 );
+// #53 Telegram live-updating arrivals board.
+const liveBoardWorker = createLiveBoardWorker();
 const startedAt = Date.now();
 const healthPort = parseInt(process.env.WORKER_HEALTH_PORT || process.env.PORT || '3001', 10);
 const healthServer = http.createServer((req, res) => {
@@ -42,6 +45,7 @@ async function shutdown(signal: string) {
   logger.info(`${signal} received, closing worker gracefully`);
   await worker.close();
   await reliabilityWorker.close();
+  await liveBoardWorker.close();
   healthServer.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 10_000).unref();
 }

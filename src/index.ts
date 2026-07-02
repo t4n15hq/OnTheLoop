@@ -17,6 +17,7 @@ import {
   reliabilityQueue,
   scheduleReliabilityRollup,
 } from './jobs/reliability.job';
+import { createLiveBoardWorker, liveBoardQueue } from './jobs/live-board.job';
 import { apiLimiter } from './middleware/rate-limit.middleware';
 import prisma from './utils/db';
 import redis, { cacheRedis } from './utils/redis';
@@ -118,6 +119,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 const PORT = config.port;
 let notificationWorker: ReturnType<typeof createNotificationWorker> | null = null;
 let reliabilityWorker: ReturnType<typeof createReliabilityWorker> | null = null;
+let liveBoardWorker: ReturnType<typeof createLiveBoardWorker> | null = null;
 
 const server = app.listen(PORT, () => {
   logger.info(`CTA Track API server started on port ${PORT}`);
@@ -138,6 +140,8 @@ const server = app.listen(PORT, () => {
     scheduleReliabilityRollup().catch((err) =>
       logger.error('Failed to schedule reliability rollup:', err)
     );
+    // #53 Telegram live-updating arrivals board.
+    liveBoardWorker = createLiveBoardWorker();
     logger.info('Notification worker running in-process');
   } else {
     logger.info('RUN_WORKER_IN_PROCESS=false — expecting a separate worker process');
@@ -154,8 +158,10 @@ async function shutdown(signal: string) {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await notificationWorker?.close();
   await reliabilityWorker?.close();
+  await liveBoardWorker?.close();
   await notificationQueue.close();
   await reliabilityQueue.close();
+  await liveBoardQueue.close();
   await prisma.$disconnect();
   await Promise.allSettled([redis.quit(), cacheRedis.quit()]);
   clearTimeout(hardExit);

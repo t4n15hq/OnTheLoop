@@ -18,6 +18,9 @@ model User {
   telegramChatId           String?      @unique
   telegramLinkToken        String?      @unique
   emailNotifications       Boolean      @default(false)
+  // Proactive disruption alerts on saved routes (issue #40). Default on so
+  // saved-route disruptions push without opt-in; users can silence per-account.
+  disruptionAlerts         Boolean      @default(true)
   // Global mute: while in the future, all scheduled deliveries are skipped.
   notificationsPausedUntil DateTime?
   // Recurring quiet window in HH:mm (America/Chicago). If start > end the
@@ -36,6 +39,7 @@ model User {
   favorites                Favorite[]
   schedules                Schedule[]
   notificationLogs         NotificationLog[]
+  sentAlerts               SentAlert[]
 
   @@map("users")
 }
@@ -150,4 +154,20 @@ model NotificationLog {
   // entire append-only log table to null out matching rows.
   @@index([scheduleId])
   @@map("notification_logs")
+}
+
+// Dedup ledger for proactive disruption pushes (issue #40). One row per
+// (user, alert) so a disruption on a saved route fires exactly once instead of
+// re-firing every scheduler tick. `alertKey` is the CTA AlertId.
+model SentAlert {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alertKey  String   // CTA AlertId (NormalizedAlert.id)
+  sentAt    DateTime @default(now())
+
+  // The uniqueness that enforces "send once per (user, alert)"; also the lookup
+  // index for "have we already pushed this alert to this user?".
+  @@unique([userId, alertKey])
+  @@map("sent_alerts")
 }

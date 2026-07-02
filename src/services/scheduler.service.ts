@@ -1,9 +1,17 @@
 import { scheduleNotifications } from '../jobs/notification.job';
+import { pushDisruptionAlerts } from '../jobs/disruption.job';
 import logger from '../utils/logger';
 
 let schedulerTimeout: NodeJS.Timeout | null = null;
 let running = false;
 let stopped = false;
+
+// Proactive disruption push (#40) is lower-frequency than the per-minute
+// schedule scan — CTA alerts are cached ~2 min and change slowly, so checking
+// every few minutes is plenty and keeps load down. `0` makes the first tick run
+// it immediately after startup.
+const DISRUPTION_INTERVAL_MS = 5 * 60_000;
+let lastDisruptionCheck = 0;
 
 /**
  * Start the notification scheduler.
@@ -21,6 +29,7 @@ export function startScheduler() {
   }
 
   stopped = false;
+  lastDisruptionCheck = 0;
   logger.info('Starting notification scheduler');
 
   const tick = async () => {
@@ -32,6 +41,15 @@ export function startScheduler() {
       running = true;
       try {
         await scheduleNotifications();
+
+        // Throttled: run the saved-route disruption sweep at most once per
+        // DISRUPTION_INTERVAL_MS. It dedupes internally, so a missed tick just
+        // delays a push slightly rather than dropping it.
+        const nowMs = Date.now();
+        if (nowMs - lastDisruptionCheck >= DISRUPTION_INTERVAL_MS) {
+          lastDisruptionCheck = nowMs;
+          await pushDisruptionAlerts();
+        }
       } catch (err) {
         logger.error('Scheduler tick failed:', err);
       } finally {

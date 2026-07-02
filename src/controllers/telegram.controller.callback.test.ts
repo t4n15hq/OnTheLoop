@@ -32,7 +32,10 @@ vi.mock('../services/cta.service', () => ({
   },
 }));
 
-vi.mock('../services/ai-sms.service', () => ({ AISMSService: { processQuery: vi.fn() } }));
+// The controller routes natural-language queries through the shared assistant
+// pipeline now (#49). Callback routing never invokes it, so a bare stub keeps
+// the real service graph out of this hermetic test.
+vi.mock('../services/assistant', () => ({ answer: vi.fn() }));
 
 vi.mock('../config', () => ({
   default: {

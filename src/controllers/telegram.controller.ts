@@ -5,7 +5,7 @@ import {
   escapeHtml,
   parseCallbackData,
 } from '../services/telegram.service';
-import { AISMSService } from '../services/ai-sms.service';
+import * as assistant from '../services/assistant';
 import { FavoriteService } from '../services/favorite.service';
 import { CTAService } from '../services/cta.service';
 import { enqueueSnoozeNotification } from '../jobs/notification.job';
@@ -166,16 +166,21 @@ export class TelegramController {
         return;
       }
 
-      // Fall through to AI for natural-language queries.
+      // Fall through to the shared assistant pipeline for natural-language
+      // queries (#49). Intent parse, favorite match, the bounded live-arrivals
+      // fan-out, and answer formatting all live in `services/assistant` now —
+      // the exact same pipeline the web app uses — so the bot and web return
+      // identical answers for the same query.
       if (!config.google.geminiApiKey) {
         await TelegramService.sendMessage(chatId, HELP_TEXT, HTML);
         return;
       }
 
-      // AI responses are free-form prose — send as plain text so stray
-      // angle brackets or ampersands don't break HTML parse mode.
-      const reply = await AISMSService.processQuery(user.id, text);
-      await TelegramService.sendMessage(chatId, reply);
+      // Assistant answers are free-form (may embed AI directions prose) — send
+      // as plain text so stray angle brackets or ampersands don't break HTML
+      // parse mode.
+      const result = await assistant.answer({ query: text, userId: user.id });
+      await TelegramService.sendMessage(chatId, result.answer);
     } catch (error) {
       logger.error(`Telegram handleMessage error for chat ${chatId}:`, error);
       try {

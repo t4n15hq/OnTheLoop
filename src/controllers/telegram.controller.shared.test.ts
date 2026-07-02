@@ -57,7 +57,12 @@ vi.mock('../services/auth.service', () => ({
     getUserByTelegramChatId: (...a: unknown[]) => getUserByTelegramChatId(...a),
   },
 }));
-vi.mock('../services/favorite.service', () => ({ FavoriteService: {} }));
+// The NL path now also queries favorites to route saved-routes keyboard taps
+// (#54.1). No favorite matches the test queries, so it stays inert and the
+// assistant pipeline still drives the reply.
+vi.mock('../services/favorite.service', () => ({
+  FavoriteService: { getUserFavorites: vi.fn().mockResolvedValue([]) },
+}));
 vi.mock('../jobs/notification.job', () => ({ enqueueSnoozeNotification: vi.fn() }));
 
 const sendMessage = vi.fn();

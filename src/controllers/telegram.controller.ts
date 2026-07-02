@@ -5,6 +5,8 @@ import {
   escapeHtml,
   parseCallbackData,
   buildAnswerKeyboard,
+  buildFavoritesKeyboard,
+  buildLiveBoardKeyboard,
   putActionContext,
   getActionContext,
   type AnswerActionContext,
@@ -23,11 +25,18 @@ const TRAIN_LINES = new Set(['Red', 'Blue', 'Brown', 'Green', 'Orange', 'Pink', 
 
 interface TelegramChat { id: number; }
 interface TelegramUser { id: number; first_name?: string; username?: string; }
+interface TelegramLocation {
+  latitude: number;
+  longitude: number;
+  /** Present (seconds) on live-location shares; absent on a one-shot pin. */
+  live_period?: number;
+}
 interface TelegramMessage {
   message_id: number;
   chat: TelegramChat;
   from?: TelegramUser;
   text?: string;
+  location?: TelegramLocation;
 }
 interface TelegramCallbackQuery {
   id: string;
@@ -35,11 +44,18 @@ interface TelegramCallbackQuery {
   message?: TelegramMessage;
   data?: string;
 }
+interface TelegramInlineQuery {
+  id: string;
+  from?: TelegramUser;
+  query: string;
+  offset?: string;
+}
 interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
   edited_message?: TelegramMessage;
   callback_query?: TelegramCallbackQuery;
+  inline_query?: TelegramInlineQuery;
 }
 
 /**
@@ -107,8 +123,23 @@ export class TelegramController {
 
       const update: TelegramUpdate = req.body;
 
+      // #52 Inline mode: `@bot <query>` from any chat. Stateless / anonymous.
+      if (update.inline_query) {
+        await TelegramController.handleInlineQuery(update.inline_query);
+        return;
+      }
+
       if (update.callback_query) {
         await TelegramController.handleCallback(update.callback_query);
+        return;
+      }
+
+      // #51 Location sharing. A one-shot pin (and the first fix of a live
+      // location) arrives as `update.message.location`. Subsequent live-location
+      // refreshes arrive as `edited_message` — deferred in v1, so we only act on
+      // the initial fix and never on edits.
+      if (update.message?.location) {
+        await TelegramController.handleLocation(update.message);
         return;
       }
 
@@ -173,6 +204,24 @@ export class TelegramController {
         }
         await TelegramController.sendRouteArrivals(chatId, user.id, route);
         return;
+      }
+
+      // #54.1 Dynamic saved-routes keyboard: a tap on a favorite button sends
+      // that favorite's name back as a plain text message. If the text is an
+      // exact (case-insensitive) match for one of the user's favorites, run the
+      // /next equivalent for it. Wrapped so a favorites lookup hiccup can never
+      // block the natural-language path below.
+      try {
+        const favorites = await FavoriteService.getUserFavorites(user.id);
+        const tapped = favorites.find(
+          (f) => f.name.trim().toLowerCase() === text.toLowerCase()
+        );
+        if (tapped) {
+          await TelegramController.sendFavoriteArrivals(chatId, tapped, favorites);
+          return;
+        }
+      } catch (err) {
+        logger.warn(`Favorite keyboard-tap lookup failed for chat ${chatId}:`, err);
       }
 
       // Fall through to the shared assistant pipeline for natural-language
@@ -303,6 +352,26 @@ export class TelegramController {
           await TelegramController.refreshAnswer(chatId, cq.message?.message_id, user.id, ctx);
           return;
         }
+        case 'live': {
+          const ctx = getActionContext(parsed.token);
+          if (!ctx) {
+            await TelegramService.sendMessage(
+              chatId,
+              'That answer has expired. Ask me again and tap Live.'
+            );
+            return;
+          }
+          await TelegramController.startLiveBoardFromContext(chatId, ctx);
+          return;
+        }
+        case 'live_stop': {
+          const messageId = cq.message?.message_id;
+          if (messageId !== undefined) {
+            const { stopLiveBoard } = await import('../jobs/live-board.job');
+            await stopLiveBoard(chatId, messageId);
+          }
+          return;
+        }
       }
     } catch (error) {
       logger.error(`Telegram handleCallback error for chat ${chatId}:`, error);
@@ -310,6 +379,155 @@ export class TelegramController {
         await TelegramService.sendMessage(chatId, 'Couldn\'t do that just now. Try again in a moment.');
       } catch {}
     }
+  }
+
+  /**
+   * Handle an inline_query (#52): `@bot <query>` typed in any chat. Anonymous
+   * and read-only — no user lookup, no personal data. We match train stations by
+   * name and answer with tappable arrival boards, cached by Telegram for a short
+   * window so popular stops don't hammer the CTA API.
+   *
+   * NB: also needs a one-time BotFather `/setinline` by the operator to be
+   * delivered at all; the handler is inert (never invoked) until then.
+   */
+  private static async handleInlineQuery(iq: TelegramInlineQuery): Promise<void> {
+    try {
+      const { buildInlineResults } = await import('../services/telegram-inline');
+      const results = await buildInlineResults(iq.query || '');
+      await TelegramService.answerInlineQuery(iq.id, results, { cacheTime: 30, isPersonal: false });
+    } catch (error) {
+      logger.warn('Telegram inline query failed:', error);
+      // Answer with nothing (short cache) so the client stops spinning.
+      try {
+        await TelegramService.answerInlineQuery(iq.id, [], { cacheTime: 5 });
+      } catch {}
+    }
+  }
+
+  /**
+   * Build the natural-language query we feed the shared assistant for a shared
+   * location (#51). Anchoring on the exact coordinates lets the Maps-grounded
+   * pipeline surface the nearest stops/stations + arrivals.
+   */
+  private static buildLocationQuery(lat: number, lon: number): string {
+    return (
+      `I'm near latitude ${lat}, longitude ${lon} in Chicago. ` +
+      `What are the nearest CTA stops or train stations, and when are the next arrivals?`
+    );
+  }
+
+  /**
+   * Handle a shared location (#51): answer with nearest stops/stations + live
+   * arrivals via the shared assistant (reusing the Maps grounding), and attach
+   * the Save / Alert / Refresh / Live action buttons whenever the answer
+   * resolves to a concrete route/stop so the rider can save a nearby stop.
+   * v1 answers the first fix only; live-location refresh is deferred.
+   */
+  private static async handleLocation(message: TelegramMessage): Promise<void> {
+    const chatId = String(message.chat.id);
+    const loc = message.location;
+    if (!loc) return;
+
+    try {
+      const user = await AuthService.getUserByTelegramChatId(chatId);
+      if (!user) {
+        await TelegramService.sendMessage(
+          chatId,
+          'This chat isn\'t linked to an account yet. Open the web app, tap <b>Link Telegram</b>, then send me the <code>/start</code> link.',
+          HTML
+        );
+        return;
+      }
+
+      if (!config.google.geminiApiKey) {
+        await TelegramService.sendMessage(
+          chatId,
+          'Finding nearby stops needs the assistant, which isn\'t configured right now. Try /favorites instead.'
+        );
+        return;
+      }
+
+      const query = TelegramController.buildLocationQuery(loc.latitude, loc.longitude);
+      const result = await assistant.answer({ query, userId: user.id });
+      const replyMarkup = TelegramController.buildAnswerActions(query, result);
+      await TelegramService.sendMessage(
+        chatId,
+        result.answer,
+        replyMarkup ? { replyMarkup } : {}
+      );
+    } catch (error) {
+      logger.error(`Telegram handleLocation error for chat ${chatId}:`, error);
+      try {
+        await TelegramService.sendMessage(
+          chatId,
+          'Couldn\'t look up nearby stops just now. Try again in a moment.'
+        );
+      } catch {}
+    }
+  }
+
+  /** Live arrivals for a resolved answer context — powers the live board (#53). */
+  private static async fetchArrivalsForContext(ctx: AnswerActionContext) {
+    if (ctx.routeType === 'TRAIN') {
+      return CTAService.getTrainArrivals(ctx.stopId, ctx.routeId, ctx.direction || undefined);
+    }
+    return CTAService.getBusPredictions(ctx.stopId, ctx.routeId, 3, ctx.direction || undefined);
+  }
+
+  /**
+   * Start a live-updating board (#53) from a resolved answer context: send the
+   * initial board (with a Stop button), capture its message id, then hand off to
+   * the BullMQ job that edits that message every ~30s until it expires or is
+   * stopped.
+   */
+  private static async startLiveBoardFromContext(
+    chatId: string,
+    ctx: AnswerActionContext
+  ): Promise<void> {
+    const {
+      startLiveBoard,
+      formatLiveBoard,
+      LIVE_BOARD_WINDOW_MS,
+    } = await import('../jobs/live-board.job');
+
+    const now = Date.now();
+    let arrivals: Awaited<ReturnType<typeof CTAService.getBusPredictions>> = [];
+    try {
+      arrivals = await TelegramController.fetchArrivalsForContext(ctx);
+    } catch (err) {
+      logger.warn(`Live board initial fetch failed for chat ${chatId}:`, err);
+      arrivals = [];
+    }
+
+    const text = formatLiveBoard(
+      { routeName: ctx.routeName, stopName: ctx.stopName, expiresAt: now + LIVE_BOARD_WINDOW_MS },
+      arrivals,
+      now
+    );
+    const messageId = await TelegramService.sendMessageReturningId(chatId, text, {
+      parseMode: 'HTML',
+      replyMarkup: buildLiveBoardKeyboard(),
+    });
+    if (messageId === null) {
+      // Couldn't create the board message — nothing to edit, so don't schedule.
+      await TelegramService.sendMessage(chatId, 'Couldn\'t start live updates just now. Try again.');
+      return;
+    }
+
+    await startLiveBoard(
+      {
+        chatId,
+        messageId,
+        routeType: ctx.routeType,
+        routeId: ctx.routeId,
+        routeName: ctx.routeName,
+        stopId: ctx.stopId,
+        stopName: ctx.stopName,
+        direction: ctx.direction,
+      },
+      undefined,
+      now
+    );
   }
 
   /**
@@ -524,7 +742,51 @@ export class TelegramController {
     }
     // Trim trailing blank line
     while (lines.length && lines[lines.length - 1] === '') lines.pop();
-    await TelegramService.sendMessage(chatId, lines.join('\n'), HTML);
+
+    // #54.1 Attach the dynamic saved-routes keyboard, built from the CURRENT
+    // favorites (one button per favorite). Querying here means it always
+    // reflects the latest set — added/renamed/deleted routes show up next time.
+    const keyboard = buildFavoritesKeyboard(favorites);
+    await TelegramService.sendMessage(
+      chatId,
+      lines.join('\n'),
+      keyboard ? { parseMode: 'HTML', replyMarkup: keyboard } : HTML
+    );
+  }
+
+  /**
+   * Send live arrivals for a specific favorite (the /next equivalent used by the
+   * #54.1 saved-routes keyboard). Re-attaches the freshly-built favorites
+   * keyboard so it stays in sync with the user's current set.
+   */
+  private static async sendFavoriteArrivals(
+    chatId: string,
+    favorite: { routeType: string; stationId?: string | null; stopId?: string | null; routeId: string; direction?: string | null; name: string },
+    allFavorites: { name: string }[]
+  ): Promise<void> {
+    let arrivals;
+    if (favorite.routeType === 'TRAIN' && favorite.stationId) {
+      arrivals = await CTAService.getTrainArrivals(
+        favorite.stationId,
+        favorite.routeId,
+        favorite.direction || undefined
+      );
+    } else if (favorite.routeType === 'BUS' && favorite.stopId) {
+      arrivals = await CTAService.getBusPredictions(
+        favorite.stopId,
+        favorite.routeId,
+        3,
+        favorite.direction || undefined
+      );
+    }
+
+    const body = CTAService.formatArrivalsForSMS(arrivals || [], favorite.name);
+    const keyboard = buildFavoritesKeyboard(allFavorites);
+    await TelegramService.sendMessage(
+      chatId,
+      body,
+      keyboard ? { parseMode: 'HTML', replyMarkup: keyboard } : HTML
+    );
   }
 
   private static async sendRouteArrivals(

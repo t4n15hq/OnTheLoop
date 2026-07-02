@@ -2,6 +2,17 @@ import prisma from '../utils/db';
 import logger from '../utils/logger';
 import { Channel, RouteType } from '@prisma/client';
 import config from '../config';
+import { scheduleWalkMinutes } from '../utils/walk-time';
+
+// Start-location fields for walk-time-aware "leave now" pings (#38). Optional
+// on both create and update; pass `null` on update to clear a field.
+interface ScheduleStartLocation {
+  startLat?: number | null;
+  startLon?: number | null;
+  startLabel?: string | null;
+  stopLat?: number | null;
+  stopLon?: number | null;
+}
 
 interface CreateFavoriteData {
   userId: string;
@@ -17,7 +28,7 @@ interface CreateFavoriteData {
   name: string;
 }
 
-interface CreateScheduleData {
+interface CreateScheduleData extends ScheduleStartLocation {
   userId: string;
   favoriteId: string;
   time: string;
@@ -27,7 +38,7 @@ interface CreateScheduleData {
   channel?: Channel;
 }
 
-interface UpdateScheduleData {
+interface UpdateScheduleData extends ScheduleStartLocation {
   time?: string;
   daysOfWeek?: number[];
   enabled?: boolean;
@@ -212,7 +223,11 @@ export class FavoriteService {
         const mins = hhmmToMinutes(s.time);
         if (mins === null) return false;
 
-        const effective = ((mins - (s.leadMinutes ?? 0)) % 1440 + 1440) % 1440;
+        // Walk-time-aware "leave now" pings (#38): when the schedule has a start
+        // location, fire at arrival − leadMinutes − walkMinutes. With no start
+        // location scheduleWalkMinutes() is 0, preserving the legacy behavior.
+        const walk = scheduleWalkMinutes(s);
+        const effective = ((mins - (s.leadMinutes ?? 0) - walk) % 1440 + 1440) % 1440;
         return effective === currentMinutes;
       });
     } catch (error) {

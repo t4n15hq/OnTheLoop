@@ -18,6 +18,11 @@ model User {
   telegramChatId           String?      @unique
   telegramLinkToken        String?      @unique
   emailNotifications       Boolean      @default(false)
+  // Proactive disruption alerts on saved routes (issue #40). Default on so
+  // saved-route disruptions push without opt-in; users can silence per-account.
+  disruptionAlerts         Boolean      @default(true)
+  // Opt-IN elevator/escalator outage alerts for saved stations (accessibility, #41).
+  accessibilityAlerts      Boolean      @default(false)
   // Global mute: while in the future, all scheduled deliveries are skipped.
   notificationsPausedUntil DateTime?
   // Recurring quiet window in HH:mm (America/Chicago). If start > end the
@@ -36,6 +41,7 @@ model User {
   favorites                Favorite[]
   schedules                Schedule[]
   notificationLogs         NotificationLog[]
+  sentAlerts               SentAlert[]
 
   @@map("users")
 }
@@ -90,6 +96,18 @@ model Schedule {
   // e.g. time="08:30", leadMinutes=15 → fires at 08:15 Chicago.
   leadMinutes Int       @default(0)
 
+  // Optional start location for walk-time-aware "leave now" pings (#38). When a
+  // start location is set, the ping fires at `time − leadMinutes − walkMinutes`
+  // (instead of `time − leadMinutes`) and is phrased "Leave in X min to catch …".
+  // stopLat/stopLon are the boarding stop's coordinates (the walk destination),
+  // stored here because favorites don't persist coordinates. All optional; when
+  // any are absent the schedule behaves exactly as before (backward compatible).
+  startLat    Float?
+  startLon    Float?
+  startLabel  String?
+  stopLat     Float?
+  stopLon     Float?
+
   // Delivery channel selection. AUTO prefers Telegram when linked,
   // falls back to email; BOTH sends via every configured channel.
   channel     Channel   @default(AUTO)
@@ -129,6 +147,56 @@ enum Channel {
   BOTH
 }
 
+// #39 Phase 1 — per-stop reliability history (data capture only, no UI yet).
+// Append-only snapshot of the live predictions we ALREADY fetch for a SAVED
+// stop when a notification fires. No new upstream CTA traffic — we just persist
+// what we already had in hand. A nightly BullMQ job folds these into
+// ReliabilityBucket and prunes raw rows older than ~30 days, so this stays
+// "raw + nightly rollup", not a timeseries DB.
+model ArrivalObservation {
+  id           String   @id @default(cuid())
+  // CTA stop id (bus) or station id (train) — identifies the boarding point.
+  stopId       String
+  routeId      String   // e.g. "Blue", "Red", "22"
+  direction    String?  // favorite.direction; null when the favorite has none
+  // minutesAway at capture. Nullable because a prediction can be missing.
+  predictedMin Int?
+  // The only delta directly derivable from a single live snapshot. A true
+  // actual-vs-predicted delta needs cross-referencing snapshots over time —
+  // that's Phase 2, deliberately deferred.
+  delayed      Boolean  @default(false)
+  observedAt   DateTime @default(now())
+  // Set once the nightly rollup has folded this row into a bucket, so a later
+  // run never double-counts it (retention prune is separate, by observedAt).
+  rolledUp     Boolean  @default(false)
+
+  // Rollup scans un-rolled rows; retention prune / grouping walk by observedAt.
+  @@index([rolledUp])
+  @@index([stopId, routeId, observedAt])
+  @@map("arrival_observations")
+}
+
+// Nightly aggregate of ArrivalObservation, grouped by
+// (stop, route, direction, hour-of-week 0–167 in the schedule timezone).
+// Additive: each rollup INCREMENTS the running totals, so aggregate history
+// survives even after the raw rows behind it are pruned. avgPredictedMin is
+// derived at read time as sumPredictedMin / predictedSampleCount (Phase 2).
+model ReliabilityBucket {
+  id                   String   @id @default(cuid())
+  stopId               String
+  routeId              String
+  direction            String   @default("") // "" when the observation had none
+  hourOfWeek           Int      // localDayOfWeek(0=Sun) * 24 + localHour, 0–167
+  sampleCount          Int      @default(0)
+  delayedCount         Int      @default(0)
+  sumPredictedMin      Int      @default(0)
+  predictedSampleCount Int      @default(0)
+  updatedAt            DateTime @updatedAt
+
+  @@unique([stopId, routeId, direction, hourOfWeek])
+  @@map("reliability_buckets")
+}
+
 // Append-only record of delivery attempts. Makes "why didn't my email arrive?"
 // answerable without tailing server logs.
 model NotificationLog {
@@ -150,4 +218,20 @@ model NotificationLog {
   // entire append-only log table to null out matching rows.
   @@index([scheduleId])
   @@map("notification_logs")
+}
+
+// Dedup ledger for proactive disruption pushes (issue #40). One row per
+// (user, alert) so a disruption on a saved route fires exactly once instead of
+// re-firing every scheduler tick. `alertKey` is the CTA AlertId.
+model SentAlert {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  alertKey  String   // CTA AlertId (NormalizedAlert.id)
+  sentAt    DateTime @default(now())
+
+  // The uniqueness that enforces "send once per (user, alert)"; also the lookup
+  // index for "have we already pushed this alert to this user?".
+  @@unique([userId, alertKey])
+  @@map("sent_alerts")
 }

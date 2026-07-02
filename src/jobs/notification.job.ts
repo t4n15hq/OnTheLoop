@@ -4,41 +4,31 @@ import logger from '../utils/logger';
 import prisma from '../utils/db';
 import { FavoriteService } from '../services/favorite.service';
 import { CTAService } from '../services/cta.service';
-import { TelegramService } from '../services/telegram.service';
+import { recordArrivalObservations } from '../services/reliability.service';
+import { TelegramService, buildPingKeyboard } from '../services/telegram.service';
 import EmailService from '../services/email.service';
 import { Channel } from '@prisma/client';
-import config from '../config';
 import { reportError } from '../utils/sentry';
-
-const NOTIFICATION_QUEUE_NAME = 'notifications';
-
-/** HH:mm in the configured schedule timezone (default America/Chicago). */
-function currentLocalHHmm(now: Date = new Date()): string {
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: config.scheduleTimezone,
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-  const parts = fmt.formatToParts(now);
-  const hour = parts.find((p) => p.type === 'hour')?.value ?? '00';
-  const minute = parts.find((p) => p.type === 'minute')?.value ?? '00';
-  return `${hour === '24' ? '00' : hour}:${minute}`;
-}
+import { hasWalkGeometry } from '../utils/walk-time';
+import { currentLocalHHmm, isInQuietWindow } from '../utils/quiet-hours';
 
 /**
- * Returns true if `current` (HH:mm) falls inside the quiet-hours window.
- * Windows that wrap midnight (e.g. 22:00 → 07:00) are supported.
- * End is exclusive: end == current means quiet hours just ended.
+ * "Leave now" phrasing for walk-time-aware pings (#38). Fires at
+ * arrival − leadMinutes − walkMinutes, so the rider has `leadMinutes` of runway
+ * before they must walk out the door.
  */
-function isInQuietWindow(current: string, start: string, end: string): boolean {
-  if (start === end) return false;
-  if (start < end) {
-    return current >= start && current < end;
-  }
-  // Wraps midnight.
-  return current >= start || current < end;
+function buildLeaveMessage(
+  leadMinutes: number,
+  favorite: { routeType: string; routeId: string; boardingStopName: string | null; name: string }
+): string {
+  const route =
+    favorite.routeType === 'TRAIN' ? `${favorite.routeId} Line` : `${favorite.routeId} bus`;
+  const stop = favorite.boardingStopName || favorite.name;
+  const when = leadMinutes > 0 ? `Leave in ${leadMinutes} min` : 'Leave now';
+  return `${when} to catch the ${route} at ${stop}.`;
 }
+
+const NOTIFICATION_QUEUE_NAME = 'notifications';
 
 export const notificationQueue = new Queue(NOTIFICATION_QUEUE_NAME, {
   connection: redis,
@@ -174,7 +164,13 @@ async function processNotification(jobData: NotificationJobData) {
     }
 
     let arrivals;
-    const title = favorite.name;
+    // Walk-time-aware pings (#38): when the schedule carries a start location,
+    // lead the message with the "leave now" action. Otherwise fall back to the
+    // favorite's name exactly as before (backward compatible).
+    const title =
+      schedule && hasWalkGeometry(schedule)
+        ? buildLeaveMessage(schedule.leadMinutes, favorite)
+        : favorite.name;
     if (favorite.routeType === 'TRAIN') {
       if (!favorite.stationId) {
         logger.error(`Train favorite ${favoriteId} missing stationId`);
@@ -198,10 +194,29 @@ async function processNotification(jobData: NotificationJobData) {
       );
     }
 
+    // #39 Phase 1: piggyback per-stop reliability capture on the fetch we just
+    // did for this SAVED stop. No new upstream call. recordArrivalObservations
+    // swallows its own errors, so this never blocks or breaks delivery.
+    const observedStopId =
+      favorite.routeType === 'TRAIN' ? favorite.stationId : favorite.stopId;
+    if (observedStopId) {
+      await recordArrivalObservations({
+        stopId: observedStopId,
+        routeId: favorite.routeId,
+        direction: favorite.direction,
+        arrivals,
+      });
+    }
+
     if (shouldSendTelegram) {
       try {
         const body = CTAService.formatArrivalsForSMS(arrivals, title);
-        await TelegramService.sendMessage(user.telegramChatId!, body, { parseMode: 'HTML' });
+        // Attach quick-action buttons (snooze / mute today / next one) so users
+        // can act on the ping without opening the app. See TelegramController.
+        await TelegramService.sendMessage(user.telegramChatId!, body, {
+          parseMode: 'HTML',
+          replyMarkup: buildPingKeyboard(favorite.id, scheduleId),
+        });
         logger.info(`Telegram notification sent for favorite ${favoriteId}`);
         await recordLog({ userId, scheduleId, channel: 'TELEGRAM', status: 'SENT', kind });
       } catch (err: any) {
@@ -354,6 +369,38 @@ export async function scheduleNotifications() {
   } catch (error) {
     reportError(error, { job: 'schedule-notifications' });
   }
+}
+
+/** How long a "Snooze 5m" button defers a re-delivery. */
+export const SNOOZE_DELAY_MS = 5 * 60 * 1000;
+
+/**
+ * Re-deliver a ping after {@link SNOOZE_DELAY_MS} — powers the "Snooze 5m"
+ * inline button. A one-off delayed job that reuses the normal notification
+ * path (so it still respects mute/quiet-hours at fire time). Not deduped by a
+ * window jobId: an explicit snooze is always its own fresh delivery.
+ */
+export async function enqueueSnoozeNotification(params: {
+  userId: string;
+  favoriteId: string;
+  scheduleId?: string;
+}) {
+  await notificationQueue.add(
+    'send-notification',
+    {
+      userId: params.userId,
+      favoriteId: params.favoriteId,
+      scheduleId: params.scheduleId,
+      kind: 'SCHEDULED',
+    } satisfies NotificationJobData,
+    {
+      delay: SNOOZE_DELAY_MS,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 2000 },
+      removeOnComplete: { count: 100 },
+      removeOnFail: { count: 500 },
+    }
+  );
 }
 
 /** Enqueue a one-off test delivery for the given schedule. */

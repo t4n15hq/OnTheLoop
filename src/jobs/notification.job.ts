@@ -8,9 +8,9 @@ import { recordArrivalObservations } from '../services/reliability.service';
 import { TelegramService, buildPingKeyboard } from '../services/telegram.service';
 import EmailService from '../services/email.service';
 import { Channel } from '@prisma/client';
-import config from '../config';
 import { reportError } from '../utils/sentry';
 import { hasWalkGeometry } from '../utils/walk-time';
+import { currentLocalHHmm, isInQuietWindow } from '../utils/quiet-hours';
 
 /**
  * "Leave now" phrasing for walk-time-aware pings (#38). Fires at
@@ -29,34 +29,6 @@ function buildLeaveMessage(
 }
 
 const NOTIFICATION_QUEUE_NAME = 'notifications';
-
-/** HH:mm in the configured schedule timezone (default America/Chicago). */
-function currentLocalHHmm(now: Date = new Date()): string {
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone: config.scheduleTimezone,
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-  const parts = fmt.formatToParts(now);
-  const hour = parts.find((p) => p.type === 'hour')?.value ?? '00';
-  const minute = parts.find((p) => p.type === 'minute')?.value ?? '00';
-  return `${hour === '24' ? '00' : hour}:${minute}`;
-}
-
-/**
- * Returns true if `current` (HH:mm) falls inside the quiet-hours window.
- * Windows that wrap midnight (e.g. 22:00 → 07:00) are supported.
- * End is exclusive: end == current means quiet hours just ended.
- */
-function isInQuietWindow(current: string, start: string, end: string): boolean {
-  if (start === end) return false;
-  if (start < end) {
-    return current >= start && current < end;
-  }
-  // Wraps midnight.
-  return current >= start || current < end;
-}
 
 export const notificationQueue = new Queue(NOTIFICATION_QUEUE_NAME, {
   connection: redis,

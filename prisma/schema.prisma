@@ -21,6 +21,8 @@ model User {
   // Proactive disruption alerts on saved routes (issue #40). Default on so
   // saved-route disruptions push without opt-in; users can silence per-account.
   disruptionAlerts         Boolean      @default(true)
+  // Opt-IN elevator/escalator outage alerts for saved stations (accessibility, #41).
+  accessibilityAlerts      Boolean      @default(false)
   // Global mute: while in the future, all scheduled deliveries are skipped.
   notificationsPausedUntil DateTime?
   // Recurring quiet window in HH:mm (America/Chicago). If start > end the

@@ -27,3 +27,15 @@ export function isInQuietWindow(current: string, start: string, end: string): bo
   // Wraps midnight.
   return current >= start || current < end;
 }
+
+/**
+ * Convenience wrapper: is the given user currently inside their configured
+ * quiet-hours window? Both bounds must be set for the window to be active.
+ */
+export function isQuietNow(
+  user: { quietHoursStart: string | null; quietHoursEnd: string | null },
+  now: Date = new Date()
+): boolean {
+  if (!user.quietHoursStart || !user.quietHoursEnd) return false;
+  return isInQuietWindow(currentLocalHHmm(now), user.quietHoursStart, user.quietHoursEnd);
+}

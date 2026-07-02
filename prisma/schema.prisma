@@ -90,6 +90,18 @@ model Schedule {
   // e.g. time="08:30", leadMinutes=15 → fires at 08:15 Chicago.
   leadMinutes Int       @default(0)
 
+  // Optional start location for walk-time-aware "leave now" pings (#38). When a
+  // start location is set, the ping fires at `time − leadMinutes − walkMinutes`
+  // (instead of `time − leadMinutes`) and is phrased "Leave in X min to catch …".
+  // stopLat/stopLon are the boarding stop's coordinates (the walk destination),
+  // stored here because favorites don't persist coordinates. All optional; when
+  // any are absent the schedule behaves exactly as before (backward compatible).
+  startLat    Float?
+  startLon    Float?
+  startLabel  String?
+  stopLat     Float?
+  stopLon     Float?
+
   // Delivery channel selection. AUTO prefers Telegram when linked,
   // falls back to email; BOTH sends via every configured channel.
   channel     Channel   @default(AUTO)

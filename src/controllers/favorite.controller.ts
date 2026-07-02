@@ -142,7 +142,18 @@ export class FavoriteController {
         return;
       }
 
-      const { favoriteId, time, daysOfWeek, leadMinutes, channel } = req.body;
+      const {
+        favoriteId,
+        time,
+        daysOfWeek,
+        leadMinutes,
+        channel,
+        startLat,
+        startLon,
+        startLabel,
+        stopLat,
+        stopLon,
+      } = req.body;
       const userId = req.user!.userId;
 
       // Channel readiness: refuse to schedule a delivery the user can't receive.
@@ -165,6 +176,12 @@ export class FavoriteController {
         daysOfWeek,
         leadMinutes: typeof leadMinutes === 'number' ? leadMinutes : 0,
         channel: channel as Channel | undefined,
+        // Optional start location for walk-time-aware pings (#38).
+        startLat,
+        startLon,
+        startLabel,
+        stopLat,
+        stopLon,
       });
 
       // No silent auto-enroll: enabling the EMAIL channel is an explicit
@@ -197,7 +214,18 @@ export class FavoriteController {
       }
 
       const { id } = req.params;
-      const { time, daysOfWeek, enabled, leadMinutes, channel } = req.body;
+      const {
+        time,
+        daysOfWeek,
+        enabled,
+        leadMinutes,
+        channel,
+        startLat,
+        startLon,
+        startLabel,
+        stopLat,
+        stopLon,
+      } = req.body;
 
       const schedule = await FavoriteService.updateSchedule(id, req.user!.userId, {
         time,
@@ -205,6 +233,12 @@ export class FavoriteController {
         enabled,
         leadMinutes,
         channel: channel as Channel | undefined,
+        // Set/clear the start location (#38). Pass null to clear a field.
+        startLat,
+        startLon,
+        startLabel,
+        stopLat,
+        stopLon,
       });
 
       res.status(200).json({ message: 'Schedule updated', schedule });
@@ -299,6 +333,33 @@ export const createFavoriteValidation = [
   body('direction').optional().trim(),
 ];
 
+// Optional start-location fields for walk-time-aware "leave now" pings (#38),
+// shared by create and update. `{ nullable: true }` lets a client clear a field
+// by sending null; coordinates are range-checked when present.
+export const startLocationValidation = [
+  body('startLat')
+    .optional({ nullable: true })
+    .isFloat({ min: -90, max: 90 })
+    .withMessage('startLat must be a latitude between -90 and 90'),
+  body('startLon')
+    .optional({ nullable: true })
+    .isFloat({ min: -180, max: 180 })
+    .withMessage('startLon must be a longitude between -180 and 180'),
+  body('startLabel')
+    .optional({ nullable: true })
+    .isString()
+    .isLength({ max: 120 })
+    .withMessage('startLabel must be 120 characters or fewer'),
+  body('stopLat')
+    .optional({ nullable: true })
+    .isFloat({ min: -90, max: 90 })
+    .withMessage('stopLat must be a latitude between -90 and 90'),
+  body('stopLon')
+    .optional({ nullable: true })
+    .isFloat({ min: -180, max: 180 })
+    .withMessage('stopLon must be a longitude between -180 and 180'),
+];
+
 export const createScheduleValidation = [
   body('favoriteId').notEmpty().withMessage('Favorite ID is required'),
   body('time')
@@ -317,6 +378,7 @@ export const createScheduleValidation = [
     .optional()
     .isIn(['AUTO', 'EMAIL', 'TELEGRAM', 'BOTH'])
     .withMessage('Invalid channel'),
+  ...startLocationValidation,
 ];
 
 // Separate validator for PATCH/PUT so partial updates (e.g. toggling `enabled`)
@@ -341,4 +403,5 @@ export const updateScheduleValidation = [
     .optional()
     .isIn(['AUTO', 'EMAIL', 'TELEGRAM', 'BOTH'])
     .withMessage('Invalid channel'),
+  ...startLocationValidation,
 ];

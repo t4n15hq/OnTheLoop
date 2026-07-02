@@ -93,6 +93,46 @@ export function formatRouteArrivals(
   return { answer, realTimeArrivals };
 }
 
+/**
+ * Format live train arrivals for a fast-path "line at station" query. Caller
+ * guarantees `validArrivals` is non-empty.
+ */
+export function formatTrainStationArrivals(
+  lineName: string,
+  lineCode: string,
+  stationName: string,
+  stationId: string,
+  direction: string | undefined,
+  validArrivals: ArrivalLike[]
+): FormattedAnswer {
+  const stop: StopArrivals = {
+    stopName: stationName,
+    stopId: stationId,
+    direction: direction || '',
+    arrivals: validArrivals.map(toClientArrival),
+  };
+
+  const realTimeArrivals: RouteRealTimeArrivals = {
+    route: lineCode,
+    routeName: `${lineName} Line`,
+    stops: [stop],
+  };
+
+  const next = validArrivals[0];
+  let answer = `🚊 ${lineName} Line\n`;
+  answer += `📍 ${stationName}\n`;
+  answer += `⏱️  Next: ${timeText(next)} → ${next.destination}`;
+
+  if (next.isDelayed) answer += ' ⚠️ DELAYED';
+
+  if (validArrivals.length > 1) {
+    const following = validArrivals.slice(1, 3).map((a) => timeText(a));
+    answer += `\n    Following: ${following.join(', ')}`;
+  }
+
+  return { answer, realTimeArrivals };
+}
+
 /** Message shown when a route exists but has no live arrivals (likely out of service). */
 export function formatNoService(routeNumber: string, routeName: string): string {
   let answer = `🚌 Route ${routeNumber} - ${routeName}\n\n`;

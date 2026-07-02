@@ -15,4 +15,5 @@ export * from './intent';
 export * from './match';
 export * from './format';
 export * from './enrich';
+export * from './fast-path';
 export { answer, defaultDeps } from './assistant.service';

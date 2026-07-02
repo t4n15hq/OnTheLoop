@@ -19,6 +19,7 @@ vi.mock('../cta-lookup.service', () => ({
     getBusRoutes: vi.fn(),
     getBusDirections: vi.fn(),
     getBusStops: vi.fn(),
+    getTrainStations: vi.fn(),
   },
 }));
 
@@ -36,6 +37,7 @@ function makeDeps(overrides: Partial<AssistantDeps> = {}): AssistantDeps {
     getBusStops: vi.fn(async () => []),
     getBusPredictions: vi.fn(async () => [] as ArrivalLike[]),
     getTrainArrivals: vi.fn(async () => [] as ArrivalLike[]),
+    getTrainStations: vi.fn(async () => []),
     ...overrides,
   };
 }
@@ -208,5 +210,108 @@ describe('assistant.answer — malformed AI / unknown intent', () => {
     expect(result.answer).toBe('Here are some directions.');
     expect(result.realTimeArrivals).toBeNull();
     expect(getTransitSuggestion).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('assistant.answer — fast-path (zero Gemini)', () => {
+  it('answers "next 22" from the CTA API without touching Gemini', async () => {
+    const parseQuery = vi.fn(async (): Promise<ParsedIntent> => ({ intent: 'unknown' }));
+    const getTransitSuggestion = vi.fn(async () => 'AI directions.');
+    const deps = makeDeps({
+      parseQuery,
+      getTransitSuggestion,
+      getBusRoutes: vi.fn(async () => [{ rt: '22', rtnm: 'Clark' }]),
+      getBusDirections: vi.fn(async () => ['Northbound']),
+      getBusStops: vi.fn(async () => [{ stpid: '9', stpnm: 'Clark & Foster' }]),
+      getBusPredictions: vi.fn(async () => [
+        { destination: 'Howard', minutesAway: 4, isApproaching: false, isDelayed: false },
+      ]),
+    });
+
+    const result = await answer({ query: 'next 22' }, deps);
+
+    expect(result.answer).toContain('🚌 Route 22');
+    expect(result.realTimeArrivals).toMatchObject({ route: '22' });
+    // The whole point: NO Gemini calls (neither parse nor suggestion).
+    expect(parseQuery).not.toHaveBeenCalled();
+    expect(getTransitSuggestion).not.toHaveBeenCalled();
+  });
+
+  it('answers a bare route number with zero Gemini calls', async () => {
+    const parseQuery = vi.fn(async (): Promise<ParsedIntent> => ({ intent: 'unknown' }));
+    const deps = makeDeps({
+      parseQuery,
+      getBusRoutes: vi.fn(async () => [{ rt: '60', rtnm: 'Blue Island/26th' }]),
+      getBusDirections: vi.fn(async () => ['Eastbound']),
+      getBusStops: vi.fn(async () => [{ stpid: '5', stpnm: 'Racine' }]),
+      getBusPredictions: vi.fn(async () => [
+        { destination: 'Downtown', minutesAway: 3, isApproaching: false, isDelayed: false },
+      ]),
+    });
+
+    const result = await answer({ query: '60' }, deps);
+
+    expect(result.realTimeArrivals).toMatchObject({ route: '60' });
+    expect(parseQuery).not.toHaveBeenCalled();
+  });
+
+  it('answers "when\'s the blue line at Belmont" from train arrivals, no Gemini', async () => {
+    const parseQuery = vi.fn(async (): Promise<ParsedIntent> => ({ intent: 'unknown' }));
+    const getTransitSuggestion = vi.fn(async () => 'AI directions.');
+    const getTrainStations = vi.fn(async () => [
+      { map_id: '41320', station_name: 'Belmont', directions: ['1', '5'] },
+      { map_id: '40060', station_name: 'Damen', directions: ['1', '5'] },
+    ]);
+    const getTrainArrivals = vi.fn(async () => [
+      { destination: 'O\'Hare', minutesAway: 6, isApproaching: false, isDelayed: false },
+    ]);
+    const deps = makeDeps({ parseQuery, getTransitSuggestion, getTrainStations, getTrainArrivals });
+
+    const result = await answer({ query: "when's the blue line at Belmont" }, deps);
+
+    expect(getTrainStations).toHaveBeenCalledWith('Blue');
+    expect(getTrainArrivals).toHaveBeenCalledWith('41320', 'Blue', undefined);
+    expect(result.answer).toContain('🚊 Blue Line');
+    expect(result.answer).toContain('Belmont');
+    expect(result.realTimeArrivals).toMatchObject({ route: 'Blue', routeName: 'Blue Line' });
+    expect(parseQuery).not.toHaveBeenCalled();
+    expect(getTransitSuggestion).not.toHaveBeenCalled();
+  });
+
+  it('gives a deterministic hint (no Gemini) when a fast-pathed route has no arrivals', async () => {
+    const parseQuery = vi.fn(async (): Promise<ParsedIntent> => ({ intent: 'unknown' }));
+    const getTransitSuggestion = vi.fn(async () => 'AI directions.');
+    const deps = makeDeps({
+      parseQuery,
+      getTransitSuggestion,
+      // Route not found in CTA routes → no answer, but must NOT hit Gemini.
+      getBusRoutes: vi.fn(async () => []),
+    });
+
+    const result = await answer({ query: 'next 999' }, deps);
+
+    expect(parseQuery).not.toHaveBeenCalled();
+    expect(getTransitSuggestion).not.toHaveBeenCalled();
+    expect(result.answer).toContain('next 22');
+  });
+});
+
+describe('assistant.answer — graceful degradation (never 500)', () => {
+  it('returns a fallback when the Gemini parse + suggestion both throw', async () => {
+    const deps = makeDeps({
+      parseQuery: vi.fn(async () => {
+        throw new Error('gemini saturated');
+      }),
+      getTransitSuggestion: vi.fn(async () => {
+        throw new Error('gemini saturated');
+      }),
+    });
+
+    // A non-fast-path, non-favorite query forces the Gemini pipeline.
+    const result = await answer({ query: 'plan me something clever' }, deps);
+
+    expect(typeof result.answer).toBe('string');
+    expect(result.answer.length).toBeGreaterThan(0);
+    expect(result.answer).toContain('next 22');
   });
 });

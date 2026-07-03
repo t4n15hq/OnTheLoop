@@ -657,6 +657,132 @@ a { color: var(--cta-primary); text-decoration: none; }
   line-height: 1.55;
 }
 
+/* ==================== FIRST-RUN ONBOARDING ==================== */
+.onboarding {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  padding: 24px 24px 26px;
+  position: relative;
+  overflow: hidden;
+}
+.onboarding::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--cta-primary);
+}
+.onboarding-kicker {
+  font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, monospace);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.onboarding-title {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  margin: 8px 0 4px;
+}
+.onboarding-sub {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--ink-2);
+  margin: 0 0 20px;
+  max-width: 46ch;
+}
+.onboarding-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.onboarding-step {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 14px;
+  position: relative;
+  padding-bottom: 18px;
+}
+/* Route line joining the step markers, transit-map style. */
+.onboarding-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 30px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--border);
+}
+.onboarding-step:last-child { padding-bottom: 0; }
+.onboarding-step-num {
+  position: relative;
+  z-index: 1;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono, 'JetBrains Mono', ui-monospace, monospace);
+  font-weight: 700;
+  font-size: 0.85rem;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+}
+.onboarding-step.is-done .onboarding-step-num {
+  background: var(--cta-green);
+  color: #fff;
+  border-color: var(--cta-green);
+}
+.onboarding-step-title {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--ink);
+  line-height: 1.3;
+  padding-top: 4px;
+}
+.onboarding-step-desc {
+  font-size: 0.85rem;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 4px 0 0;
+  max-width: 48ch;
+}
+.onboarding-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 15px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--cta-primary);
+  background: transparent;
+  color: var(--cta-primary);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.onboarding-btn:hover {
+  background: var(--cta-primary);
+  color: #fff;
+}
+.onboarding-btn-primary {
+  background: var(--cta-primary);
+  color: #fff;
+}
+.onboarding-btn-primary:hover { background: var(--cta-primary-dark); }
+.empty-state .onboarding-btn { margin-top: 4px; }
+
 /* ==================== ASSISTANT PANEL (Notion right-sidebar) ==================== */
 .assistant-panel {
   background: var(--surface);
@@ -1544,6 +1670,11 @@ a { color: var(--cta-primary); text-decoration: none; }
   color: var(--lv-ink-2);
   max-width: 540px;
   margin: 0 0 36px;
+}
+.lv-hero-sub strong {
+  color: var(--lv-ink);
+  font-weight: 600;
+  box-shadow: inset 0 -0.5em 0 var(--cta-blue-soft, rgba(0, 161, 222, 0.16));
 }
 
 .lv-hero-actions {

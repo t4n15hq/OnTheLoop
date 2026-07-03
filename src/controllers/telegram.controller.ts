@@ -87,17 +87,54 @@ function endOfLocalDay(now: Date, timeZone: string): Date {
   return new Date(endLocalMs - offsetMs);
 }
 
-// HTML-formatted. Send with parseMode: 'HTML'.
+// Inline-mode hint (#52). The bot @handle is empty until the operator sets
+// TELEGRAM_BOT_USERNAME, so phrase it to read fine either way.
+const INLINE_HINT = config.telegram.botUsername
+  ? `Type <code>@${escapeHtml(config.telegram.botUsername)}</code> in any chat to share a station's arrivals inline`
+  : 'Type my @handle in any chat to share a station\'s arrivals inline';
+
+// HTML-formatted. Send with parseMode: 'HTML'. Full reference for /help — kept
+// grouped and scannable so it reads at a glance, not as a wall of text.
 const HELP_TEXT = [
+  '<b>OnTheLoop</b> — live CTA arrivals, right here.',
+  '',
+  '<b>Just ask</b>',
+  '<i>"when\'s the next Blue Line?"</i>',
+  '<i>"how do I get to Willis Tower?"</i>',
+  'Every answer has buttons to <b>Save</b> the route, <b>Set an alert</b>, <b>Refresh</b>, or watch it 🔴 <b>Live</b> on a self-updating board.',
+  '',
   '<b>Commands</b>',
-  '/next &lt;route&gt; — next arrivals for a favorite (e.g. <code>/next 60</code>)',
+  '/next &lt;route&gt; — next arrivals for a saved route (e.g. <code>/next 60</code>)',
   '/favorites — your saved routes with upcoming arrivals',
   '/unlink — disconnect this chat from your account',
   '/help — show this message',
   '',
-  '<b>Or just ask</b>',
-  '<i>"when\'s the next blue line?"</i>',
+  '<b>Shortcuts</b>',
+  '📍 Share your location for the nearest stops + arrivals',
+  '⭐ Tap a saved route on the keyboard for instant arrivals',
+  INLINE_HINT,
+  '',
+  '<b>Alerts</b>',
+  'Scheduled arrival alerts land here with <b>Snooze</b>, <b>Mute today</b>, and <b>Next one instead</b>.',
+].join('\n');
+
+// Warm, concise first-run welcome (after linking / on /start). Covers the
+// essentials without repeating the full /help reference.
+const WELCOME_TEXT = [
+  'Here\'s what I can do:',
+  '',
+  '<b>Just ask</b> — in plain English:',
+  '<i>"when\'s the next Blue Line?"</i>',
   '<i>"how do I get to Willis Tower?"</i>',
+  '',
+  '<b>Commands</b>',
+  '/next &lt;route&gt; — arrivals for a saved route',
+  '/favorites — all your saved routes, live',
+  '/help — everything I can do',
+  '',
+  '<b>Shortcuts</b>',
+  '📍 Share your location for the nearest stops',
+  '⭐ Tap a saved route on the keyboard for instant arrivals',
 ].join('\n');
 
 const HTML = { parseMode: 'HTML' as const };
@@ -661,13 +698,13 @@ export class TelegramController {
       if (existing) {
         await TelegramService.sendMessage(
           chatId,
-          `Already linked as <code>${escapeHtml(existing.email)}</code>. Send /help to see commands.`,
+          `You're already linked as <code>${escapeHtml(existing.email)}</code>. Send /help to see everything I can do.`,
           HTML
         );
       } else {
         await TelegramService.sendMessage(
           chatId,
-          'Welcome. To link this chat, open the web app, tap <b>Link Telegram</b>, and follow the link it gives you.',
+          '👋 <b>Welcome to OnTheLoop</b> — live CTA arrivals in chat.\n\nTo get started, open the web app, tap <b>Link Telegram</b>, and follow the link it gives you back here.',
           HTML
         );
       }
@@ -685,7 +722,7 @@ export class TelegramController {
 
     await TelegramService.sendMessage(
       chatId,
-      `<b>Linked</b>\nConnected to <code>${escapeHtml(user.email)}</code>. Scheduled arrival alerts will show up here.\n\n${HELP_TEXT}`,
+      `<b>You're linked</b> ✅\nConnected to <code>${escapeHtml(user.email)}</code>. Scheduled arrival alerts will show up here.\n\n${WELCOME_TEXT}`,
       HTML
     );
   }
@@ -695,7 +732,8 @@ export class TelegramController {
     if (favorites.length === 0) {
       await TelegramService.sendMessage(
         chatId,
-        'No favorites yet. Add some in the web app and they\'ll show up here.'
+        'No saved routes yet. Ask me about a route and tap <b>Save this route</b>, or add one in the web app — either way it\'ll show up here and on your tap keyboard.',
+        HTML
       );
       return;
     }

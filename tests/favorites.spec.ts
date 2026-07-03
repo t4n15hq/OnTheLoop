@@ -57,7 +57,7 @@ test.describe('Favorites & Schedules UI', () => {
     await page.reload();
     await expect(page.locator('#dashboard-view')).toBeVisible({ timeout: 10_000 });
     const favList = page.locator('#favorites-list');
-    await expect(favList).toContainText(/No routes saved/i, { timeout: 10_000 });
+    await expect(favList).toContainText(/Save your first route/i, { timeout: 10_000 });
   });
 
   test('schedule modal opens and populates favorite options', async ({ page, request }) => {
@@ -131,7 +131,7 @@ test.describe('Favorites & Schedules UI', () => {
     await seedAuthedSession(page, request);
     await page.reload();
     await expect(page.locator('#dashboard-view')).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator('#schedules-list')).toContainText(/No alerts scheduled/i, {
+    await expect(page.locator('#schedules-list')).toContainText(/No pings scheduled/i, {
       timeout: 10_000,
     });
   });

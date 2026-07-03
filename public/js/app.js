@@ -221,6 +221,14 @@ function setupEventListeners() {
   });
 
   document.getElementById('favorites-list').addEventListener('click', (e) => {
+    const onboardBtn = e.target.closest('[data-onboard]');
+    if (onboardBtn) {
+      e.preventDefault();
+      if (onboardBtn.dataset.onboard === 'add-route') openModal('favorite-modal');
+      else if (onboardBtn.dataset.onboard === 'link-telegram') handleLinkTelegram();
+      return;
+    }
+
     const deleteBtn = e.target.closest('.delete-fav-btn');
     if (deleteBtn) {
       e.stopPropagation();
@@ -232,6 +240,13 @@ function setupEventListeners() {
     if (card) checkFavorite(card.dataset.id);
   });
   document.getElementById('schedules-list').addEventListener('click', (e) => {
+    const onboardBtn = e.target.closest('[data-onboard]');
+    if (onboardBtn) {
+      e.preventDefault();
+      openScheduleEditor(null);
+      return;
+    }
+
     const toggle = e.target.closest('.pill-toggle');
     const delBtn = e.target.closest('.delete-btn');
     const testBtn = e.target.closest('.test-btn');
@@ -1099,11 +1114,48 @@ async function loadFavorites() {
     cachedFavorites = data.favorites || [];
     const list = document.getElementById('favorites-list');
     if (!data.favorites.length) {
+      const tgLinked = Boolean(currentUser?.telegramLinked);
+      const telegramStep = tgLinked
+        ? `
+          <li class="onboarding-step is-done">
+            <span class="onboarding-step-num" aria-hidden="true">✓</span>
+            <div class="onboarding-step-body">
+              <div class="onboarding-step-title">Telegram linked</div>
+              <p class="onboarding-step-desc">Your pings will land in this chat. Nice work.</p>
+            </div>
+          </li>`
+        : `
+          <li class="onboarding-step">
+            <span class="onboarding-step-num" aria-hidden="true">2</span>
+            <div class="onboarding-step-body">
+              <div class="onboarding-step-title">Link Telegram</div>
+              <p class="onboarding-step-desc">Where your pings arrive — no app to open, nothing to refresh.</p>
+              <button type="button" class="onboarding-btn" data-onboard="link-telegram">Link Telegram <span aria-hidden="true">→</span></button>
+            </div>
+          </li>`;
       list.innerHTML = `
-        <div class="empty-state" style="grid-column:1/-1;">
-          <div class="icon">＋</div>
-          <h5>No routes saved yet</h5>
-          <p>Save a route to pin it here — tap once for live arrivals, or set a recurring alert.</p>
+        <div class="onboarding" style="grid-column:1/-1;">
+          <div class="onboarding-kicker" aria-hidden="true">FIRST RUN · 3 STOPS TO YOUR FIRST PING</div>
+          <h4 class="onboarding-title">Let's get you on the loop</h4>
+          <p class="onboarding-sub">Arrivals that come to you. Set it up once — about a minute, start to finish.</p>
+          <ol class="onboarding-steps">
+            <li class="onboarding-step">
+              <span class="onboarding-step-num" aria-hidden="true">1</span>
+              <div class="onboarding-step-body">
+                <div class="onboarding-step-title">Save your first route</div>
+                <p class="onboarding-step-desc">Your morning Red Line, the 147 home — pick a line and stop, and pin it here.</p>
+                <button type="button" class="onboarding-btn onboarding-btn-primary" data-onboard="add-route">Add a route <span aria-hidden="true">→</span></button>
+              </div>
+            </li>
+            ${telegramStep}
+            <li class="onboarding-step">
+              <span class="onboarding-step-num" aria-hidden="true">3</span>
+              <div class="onboarding-step-body">
+                <div class="onboarding-step-title">Get pinged before you leave</div>
+                <p class="onboarding-step-desc">Once a route's saved, set a time and we'll buzz you on Telegram right before the train comes.</p>
+              </div>
+            </li>
+          </ol>
         </div>`;
       updateDropdown([]);
       return;
@@ -1199,8 +1251,9 @@ async function loadSchedules() {
       list.innerHTML = `
         <div class="empty-state">
           <div class="icon">🔔</div>
-          <h5>No alerts scheduled</h5>
-          <p>Tap + to get notified at a recurring time — e.g. weekday mornings before your commute.</p>
+          <h5>No pings scheduled</h5>
+          <p>Get a Telegram buzz at a recurring time — say, 8:15 AM on weekdays, right before your commute.</p>
+          <button type="button" class="onboarding-btn" data-onboard="add-schedule">Schedule a ping <span aria-hidden="true">→</span></button>
         </div>`;
       updateNextTrip([]);
       return;

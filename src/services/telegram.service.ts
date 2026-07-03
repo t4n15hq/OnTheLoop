@@ -424,9 +424,10 @@ class TelegramServiceImpl {
     if (!client) throw new Error('Telegram bot token not configured');
 
     const commands = [
-      { command: 'next', description: 'Next arrivals for a saved favorite' },
-      { command: 'favorites', description: 'Your saved routes with next arrivals' },
-      { command: 'help', description: 'Show available commands' },
+      { command: 'start', description: 'Link this chat or show the welcome' },
+      { command: 'next', description: 'Next arrivals for a saved route' },
+      { command: 'favorites', description: 'Your saved routes, with live arrivals' },
+      { command: 'help', description: 'What I can do and all commands' },
       { command: 'unlink', description: 'Disconnect this chat from your account' },
     ];
 
